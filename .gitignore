@@ -3,3 +3,5 @@
 /.vscode
 LocalPreferences.toml
 *dev*.jl
+.SpaceVim.d
+flake*
