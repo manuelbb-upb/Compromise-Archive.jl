@@ -45,8 +45,9 @@ end
 
 function _jacobian( gradients_handles, :: Nothing, fallback, wuf, x )
     return transpose(
-        hcat( 
-            ( g(x) for g in gradients_handles )...
+        reduce(
+            hcat,
+            g(x) for g in gradients_handles 
         )
     )
 end
@@ -69,8 +70,9 @@ end
 
 function _partial_jacobian( gradients_handles, :: Nothing, fallback, wuf, x, output_numbers )
     return transpose(
-        hcat( 
-            ( g(x) for g in gradients_handles[output_numbers] )...
+        reduce( 
+            hcat,
+            g(x) for g in gradients_handles[output_numbers] 
         )
     )
 end

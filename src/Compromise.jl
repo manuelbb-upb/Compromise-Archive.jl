@@ -15,8 +15,6 @@ import SparseArrays: spzeros, sparsevec, sparse,
 
 import Parameters: @with_kw, @unpack, @pack! 	# convenient keyword constructors
 
-import MathOptInterface as MOI
-
 using Preferences 	# used to set `nansafe_mode` in `ForwardDiff`
 using Requires		# conditional loading of `ForwardDiff`
 function __init__()
@@ -38,6 +36,10 @@ import InteractiveUtils: @which
 # evaluators.jl
 using MacroTools: isexpr
 
+# used by/in:
+# mop.jl
+using InteractiveUtils: subtypes
+
 include("constants.jl")
 
 include("indices.jl")
@@ -54,6 +56,6 @@ include("linear_constraints.jl")
 
 include("iter_data.jl")
 
-include("mop_interface.jl")
+include("mop.jl")
 
 end # module

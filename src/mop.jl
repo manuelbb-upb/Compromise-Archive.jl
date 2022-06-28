@@ -17,29 +17,20 @@ _lower_bound( :: AbstractMOP, :: VariableIndex) :: Real = nothing
 "Return the upper bound for the variable with Index `VariableIndex`."
 _upper_bound( :: AbstractMOP, :: VariableIndex) :: Real = nothing
 
-"Return a vector or tuple of all objective indices used in the model."
-_objective_indices( :: AbstractMOP ) = ObjectiveIndex[]
+# implement for all supported index types:
+"""
+    _all_indices( mop, index_type::Type{<:FunctionIndex} )
 
-# nonlinear constraints
-"Return the vector or tuple of the indices of nonlinear equality constraints used in the model."
-_nl_eq_constraint_indices( :: AbstractMOP ) = NLConstraintIndexEq[]
-"Return the vector or tuple of the indices of nonlinear inequality constraints used in the model."
-_nl_ineq_constraint_indices( :: AbstractMOP ) = NLConstraintIndexIneq[]
+Return an iterable object of all indices of type `index_type` stored in `mop`.
+"""
+_all_indices( :: AbstractMOP, T :: Type{<:FunctionIndex} ) = T[]
 
-# linear constraints (optional - either define these or 
-# `get_eq_matrix_and_vector` as well as `get_ineq_matrix_and_vector`)
-"Return the vector or tuple of the indices of *linear* equality constraints used in the model."
-_eq_constraint_indices( :: AbstractMOP ) = ConstraintIndexEq[]
-"Return the vector or tuple of the indices of *linear* inequality constraints used in the model."
-_ineq_constraint_indices( :: AbstractMOP ) = ConstraintIndexIneq[]
+function _all_indices(mop :: AbstractMOP, T :: Type{FunctionIndex})
+    return Iterators.flatten( _all_indices(mop, F) for F in subtypes(T) )
+end
 
 # for objectives and nl_constraints (and linear constraints if the "getter"s are defined)
 _get( :: AbstractMOP, :: FunctionIndex ) :: AbstractOuterEvaluator = nothing
-function _get( 
-    :: AbstractMOP, :: Union{ConstraintIndexEq,ConstraintIndexIneq} 
-) :: MOI.VectorAffineFunction
-    return nothing
-end
 
 # Methods for editable models:
 # Implement for `mop::AbstractMOP{true}`
@@ -61,6 +52,15 @@ for fn in [
     end
 end
 
+function _add_function!(
+    mop :: AbstractMOP, 
+    index :: FunctionIndex, 
+    func :: Union{AbstractOuterEvaluator}
+) :: Bool
+    false
+end
+
+#=
 # The functions that are to be called by the user are derived below.
 # They do not use an underscore.
 "Add an objective function to the model."
@@ -76,6 +76,16 @@ _add_nl_ineq_constraint!(::AbstractMOP{true}, ::NLConstraintIndexIneq, ::Abstrac
 _add_eq_constraint!(::AbstractMOP{true}, ::ConstraintIndexEq, ::MOI.VectorAffineFunction) = nothing
 "Add a linear inequality constraint function to the model."
 _add_ineq_constraint!(::AbstractMOP{true}, ::ConstraintIndexIneq, :: MOI.VectorAffineFunction) = nothing
+=#
+
+function new_index(mop, index_type, name) end
+_next_int( value_indices ) = 1 + isempty(value_indices) ? 0 : maximum( ind.value for ind in value_indices )
+for index_type in subtypes( FunctionIndex )
+    @eval function _new_index( mop :: AbstractMOP, ind_type :: Type{$(index_type)}, name::String="")
+        i = _next_int( _all_indices(mop, ind_type) )
+        return ind_type( i, name )
+    end
+end
 
 # not used anywhere yet
 # not implemented yet by `MOP<:AbstractMOP{true}`
@@ -85,7 +95,25 @@ function _del!(::AbstractMOP, ind :: Union{VariableIndex, FunctionIndex} )
     return nothing
 end
 
-# DERIVED methods 
+# DERIVED methods
+
+#=
+"Return a vector or tuple of all objective indices used in the model."
+_objective_indices( mop :: AbstractMOP ) = _all_indices( mop, ObjectiveIndex )
+
+# nonlinear constraints
+"Return the vector or tuple of the indices of nonlinear equality constraints used in the model."
+_nl_eq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, NLConstraintIndexEq )
+"Return the vector or tuple of the indices of nonlinear inequality constraints used in the model."
+_nl_ineq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, NLConstraintIndexIneq )
+
+# linear constraints (optional - either define these or 
+# `get_eq_matrix_and_vector` as well as `get_ineq_matrix_and_vector`)
+"Return the vector or tuple of the indices of *linear* equality constraints used in the model."
+_eq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, ConstraintIndexEq )
+"Return the vector or tuple of the indices of *linear* inequality constraints used in the model."
+_ineq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, ConstraintIndexIneq )
+=#
 
 function _variables(mop :: AbstractMOP)
     vars = __variables(mop)
@@ -97,6 +125,7 @@ function _variable_indices(mop :: AbstractMOP)
     isnothing(vars) && return Indices( __variables(mop) )
     return vars
 end
+_all_indices( mop :: AbstractMOP, :: Type{VariableIndex} ) = _variables(mop)
 
 function _lower_bounds( mop :: AbstractMOP, var_inds )
     return _lower_bound.(mop, var_inds)
@@ -123,18 +152,19 @@ function add_variables!(mop::AbstractMOP{true}, num_new :: Int )
     return [add_variable!(mop) for _ = 1 : num_new]
 end
 
-function _function_indices( mop :: AbstractMOP )
-    return Iterators.flatten( (
-        _objective_indices( mop ),
-        _nl_eq_constraint_indices( mop ),
-        _nl_ineq_constraint_indices( mop )
-    ) )
-end
-
 function _bounds_vectors( mop :: AbstractMOP )
     (_lower_bounds_vector(mop), full_upper_bounds(mop))
 end
 
+function _all_functions( mop :: AbstractMOP, index_type :: Type{<:FunctionIndex} )
+    return ( _get( mop, func_ind ) for func_ind = _all_indices(mop, index_type) )
+end
+
+function _all_functions( mop :: AbstractMOP )
+    return __all_functions(mop, FunctionIndex) 
+end
+
+#=
 function list_of_objectives( mop :: AbstractMOP )
     return [ _get( mop, func_ind ) for func_ind = _objective_indices(mop) ]
 end
@@ -150,6 +180,7 @@ end
 function list_of_functions( mop :: AbstractMOP )
     return [ _get( mop, func_ind ) for func_ind = _function_indices(mop) ]
 end
+=#
 
 # defined below:
 num_objectives(mop) = nothing
@@ -274,7 +305,7 @@ function eval_at_unscaled_dict(
     mop :: AbstractMOP, xd :: AbstractDictionary{<:ScalarIndex,F}
 ) where F
     _xd = convert( Dictionary{ScalarIndex, F}, xd )
-    for func_ind in _function_indices(mop)
+    for func_ind in _all_indices(mop, FunctionIndex)
         eval_at_dict!(_get(mop, func_ind), _xd)
     end
     return _xd
@@ -283,11 +314,22 @@ end
 #=======================================================================
 SimpleMOP
 =======================================================================#
+const MOP_FIELDNAME_DICT_SG = Dict(
+    VariableIndex => :variable,
+    ObjectiveIndex => :objective,
+    ConstraintIndexEq => :eq_constraint,
+    ConstraintIndexIneq => :ineq_constraint,
+    NLConstraintIndexEq => :nl_eq_constraint,
+    NLConstraintIndexIneq => :nl_ineq_constraint,
+)
+_plural( symb ) = Symbol( symb, :s )
+const MOP_FIELDNAME_DICT = Dict( k => _plural(v) for (k,v) in pairs(MOP_FIELDNAME_DICT_SG) )
+
 @with_kw struct SimpleMOP <: AbstractMOP{true}
-    variable_indices :: Vector{VariableIndex}
+    variables :: Vector{VariableIndex}
     
-    lower_bounds_dict = FillDictionary( variable_indices, -Inf )
-    upper_bounds_dict = FillDictionary( variable_indices, Inf )
+    lower_bounds_dict = FillDictionary( variables, -Inf )
+    upper_bounds_dict = FillDictionary( variables, Inf )
 
     objectives = Dictionary{ObjectiveIndex,AbstractOuterEvaluator}()
     nl_eq_constraints = Dictionary{NLConstraintIndexEq,AbstractOuterEvaluator}()
@@ -296,25 +338,16 @@ SimpleMOP
     ineq_constraints = Dictionary{ConstraintIndexIneq,AbstractOuterEvaluator}()
 end
 
-for (func_type, ind_type) in [
-    (:objective, ObjectiveIndex),
-    (:eq_constraint, ConstraintIndexEq),
-    (:ineq_constraint, ConstraintIndexIneq),
-    (:nl_eq_constraint, NLConstraintIndexEq),
-    (:nl_ineq_constraint, NLConstraintIndexIneq)
-]
-    fn = Symbol("_add_$(func_type)!")
-    fieldn = Symbol("$(func_type)s")
-    ind_fn = Symbol("_$(func_type)_indices")
-    @eval function $(fn)(mop :: SimpleMOP, ind :: $(ind_type), aoe :: AbstractOuterEvaluator)
-        insert!( getfield( mop, $(Meta.quot(fieldn))), ind, aoe )
+for (ind_type, field_name) in pairs( MOP_FIELDNAME_DICT )
+    @eval function _add_function!(
+            mop :: SimpleMOP, ind :: $(ind_type), aoe :: AbstractOuterEvaluator
+        )
+        insert!( getfield( mop, $(Meta.quot(field_name))), ind, aoe )
         return nothing
     end
 end
 
 # syntactic sugar:
-
-_next_int( value_indices ) = 1 + isempty(value_indices) ? 0 : maximum( ind.value for ind in value_indices )
 
 function _get_differentiator(model_cfg, gradients, jacobian, hessians, ad_backend, ad_backend_2 )
     if !needs_gradients(model_cfg) && !needs_hessians(model_cfg)
@@ -334,7 +367,8 @@ function _get_differentiator(model_cfg, gradients, jacobian, hessians, ad_backen
     return FuncContainerBackend(;
         gradients, jacobian, hessians, fallback = ad_backend, fallback2 = ad_backend2
     )
-
+end
+#=
 for (func_type, ind_type) in [
     (:objective, ObjectiveIndex),
     (:nl_eq_constraint, NLConstraintIndexEq),
@@ -349,16 +383,19 @@ for (func_type, ind_type) in [
         gradients = nothing,
         jacobian = nothing, 
         hessians = nothing,
-        ad_backend = nothing
+        ad_backend = nothing,
+        ad_backend_second_order = nothing,
     )
+        differentiator = _get_differentiator(
+            model_cfg, gradients, jacobian, hessians, ad_backend, ad_backend_second_order
+        )
         aie = WrappedUserFunc(func;
             num_outputs = n_out,
             model_cfg, can_batch, differentiator
         )
 
-
-
         insert!( getfield( mop, $(Meta.quot(fieldn))), ind, aoe )
         return nothing
     end
 end
+=#

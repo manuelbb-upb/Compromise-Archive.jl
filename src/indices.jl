@@ -1,31 +1,40 @@
 abstract type AbstractIndex end
 Base.broadcastable( i :: AbstractIndex ) = Ref(i)
 
-#=
+abstract type ScalarIndex <: AbstractIndex end
+abstract type FunctionIndex <: AbstractIndex end
+abstract type ConstraintIndex <: FunctionIndex end
+
 "Index type to reference scaler variables. Internally, simply wraps an integer."
-struct VariableIndex <: AbstractIndex
+struct VariableIndex <: ScalarIndex
 	value :: Int 
 	name :: String
 	
-	VariableIndex( value :: Int, name :: String = "") = new(value, name)
+	#moi_var :: MOI.VariableIndex
+	function VariableIndex( value :: Int, name :: String = "")
+		new(
+			value, 
+			name,
+			#MOI.VariableIndex(value)
+		)
+	end
 end
-=#
 
-const VariableIndex = MOI.VariableIndex
+#const VariableIndex = MOI.VariableIndex
 
-@with_kw struct DependentIndex <: AbstractIndex
+@with_kw struct DependentIndex <: ScalarIndex
 	uid :: UUIDs.UUID = UUIDs.uuid4()
 end
 
-const ScalarIndex = Union{VariableIndex, DependentIndex}
+#const ScalarIndex = Union{VariableIndex, DependentIndex}
 
 """
-	ObjectiveIndex( value::Int, num_out::Int )
+	ObjectiveIndex( value::Int, name="" )
 
 Index to reference a vector-valued objective function in an `AbstractMOP`
 and store the output dimension.
 """
-struct ObjectiveIndex <: AbstractIndex
+struct ObjectiveIndex <: FunctionIndex
     value :: Int
     name :: String 
 
@@ -35,13 +44,13 @@ end
 for tn = [:NLConstraintIndexEq, :NLConstraintIndexIneq, :ConstraintIndexEq, :ConstraintIndexIneq]
     @eval begin
 		"""
-			$($(tn))( value::Int, num_out::Int )
+			$($(tn))( value::Int, name="" )
 		
 		Index to reference a vector-valued constraint function 
 		of type `AbstractOuterEvaluator` in an `AbstractMOP`
 		and store the output dimension (for convenience).
 		"""
-		struct $(tn) <: AbstractIndex
+		struct $(tn) <: ConstraintIndex
 			value :: Int
 			name :: String 
 			
@@ -52,14 +61,14 @@ for tn = [:NLConstraintIndexEq, :NLConstraintIndexIneq, :ConstraintIndexEq, :Con
 	end
 end
 
-ConstraintIndex = Union{
+#=ConstraintIndex = Union{
     NLConstraintIndexEq,
     NLConstraintIndexIneq,
     ConstraintIndexEq,
     ConstraintIndexIneq,
-}
+}=#
 
-FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
+#FunctionIndex = Union{ObjectiveIndex, ConstraintIndex}
 
 FunctionIndexTuple = Tuple{Vararg{<:FunctionIndex}}
 FunctionIndexIterable = Union{FunctionIndexTuple, AbstractVector{<:FunctionIndex}}

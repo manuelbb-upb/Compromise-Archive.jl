@@ -62,9 +62,12 @@ function _coeff_dict_of_dicts(scal)
 end
 
 function _matrix_from_coeff_dict( vars , coeff_dict_of_dicts )
-	return transpose(hcat(
-		( collect(getindices( coeff_dict_of_dicts[vi], vars ) for vi = vars ))...
-	))
+	return transpose(
+		reduce( 
+			hcat,
+			collect(getindices( coeff_dict_of_dicts[vi], vars ) for vi = vars )
+		)
+	)
 end
 
 function _scaling_matrix( scal :: AbstractAffineScaler )

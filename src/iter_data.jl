@@ -1,84 +1,4 @@
 
-# depends on:
-# `linear_constraints.jl` for type promotion of `VectorAffineFunction`s
-
-#=======================================================================
-LinearConstraintsCache
-========================================================================#
-struct LinearConstraintsCache{
-	T <: Number,
-	N
-}
-
-	scaled_lower_bounds_vector :: SVector{T, N}
-	scaled_upper_bounds_vector :: SVector{T, N}
-
-	transformed_linear_equality_constraints :: Dictionary{
-		ConstraintIndexEq,
-		MOI.VectorAffineFunction{T}
-	}
-	transformed_linear_inequality_constraints :: Dictionary{
-		ConstraintIndexIneq,
-		MOI.VectorAffineFunction{T}
-	}
-end
-
-Base.broadcastable( lcc :: LinearConstraintsCache ) = Ref( lcc )
-
-function LinearConstraintsCache( 
-	mop :: AbstractMOP,
-	scal :: AbstractAffineScaler
-)
-	lb, ub = _bounds_vectors(mop)
-	scaled_lb = transform(lb, scal)
-	scaled_ub = transform(ub, scal)
-
-	n_vars = length(lb)
-
-	T1 = Base.promote_eltype(lb, ub)
-
-	transformed_linear_equality_constraints = reduce(
-		merge,	# should convert the value type appropriately
-		Dictionary(
-			ind, 
-			_get(mop, ind) for ind = _eq_constraint_indices(mop)
-		);
-		init = Dictionary{ConstraintIndexEq, MOI.VectorAffineFunction{T1}}()
-	)
-
-	T2 = Base.promote_type( 
-		T1, 
-		_precision(valtype(transformed_linear_equality_constraints)) 
-	)
-
-	transformed_linear_inequality_constraints = reduce(
-		merge,	# should convert the value type appropriately
-		Dictionary(
-			ind, 
-			_get(mop, ind) for ind = _eq_constraint_indices(mop)
-		);
-		init = Dictionary{ConstraintIndexIneq, MOI.VectorAffineFunction{T2}}()
-	)
-
-	T = Base.promote_type(
-		T2,
-		_precision(valtype(transformed_linear_equality_constraints))
-	)
-	
-	return LinearConstraintsCache(
-		SVector{n_vars,T}(scaled_lb),
-		SVector{n_vars,T}(scaled_ub),
-		convert(
-			Dictionary{ConstraintIndexEq,T}, 
-			transformed_linear_equality_constraints
-		),
-		convert(
-			Dictionary{ConstraintIndexInEq,T},
-			transformed_linear_inequality_constraints
-		),
-	)
-end
-
 #=======================================================================
 Iterate
 ========================================================================#
@@ -100,7 +20,6 @@ _precision( :: Iterate{F,VT} ) where{F,VT} = F
 #=======================================================================
 IterData
 ========================================================================#
-
 @with_kw struct IterData{
 	F <: Real,
 	VT <: AbstractVector{F}

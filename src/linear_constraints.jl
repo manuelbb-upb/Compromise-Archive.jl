@@ -1,185 +1,3 @@
-# Imports required:
-# * Dictionaries
-# * MathOptInterface as MOI
-# * SparseArrays: sparce
-# Definitions required:
-# * `VariableIndex`
-# * `AbstractAffineScaler`
-# * `AbstractMOP`
-
-# ## IMPORTANT 
-# Througouht this file we always assume linear constraints to be of the form 
-# ``Ax + b ≦ 0`` and `MOI.VectorAffineFunction`s to be such that they 
-# store ``b`` correspondingly, without a change of the sign.
-
-_precision( :: Type{<: MOI.VectorAffineFunction{T}} ) where T = T
-_precision( :: T ) where T <: MOI.VectorAffineFunction = _precision(T)
-
-function Base.convert(
-	::Type{<:MOI.VectorAffineFunction{T}}, 
-	vaf :: MOI.VectorAffineFunction{F}
-) where{T<:Number, F<:Number}
-	return MOI.VectorAffineFunction{T}(
-		MOI.VectorAffineTerm{T}[ 
-			MOI.VectorAffineTerm(
-				t.output_index,
-				MOI.ScalarAffineTerm{T}(
-					convert(T, t.scalar_term.coefficient),
-					t.scalar_term.variable
-				)
-			)
-		for t in vaf.terms],
-		T.(vaf.constants)
-	)
-end
-
-# evaluation of linear constraints
-function _eval_vaf( 
-    vaf :: MOI.VectorAffineFunction{T}, 
-    xd :: Union{AbstractDict{VariableIndex,R},AbstractDictionary{VariableIndex, R}}
-) where {T,R}
-	num_out = MOI.output_dimension(vaf)
-	F = Base.promote_type( MIN_PRECISION, Base.promote_op( *, T, R ) )
-	ret = convert( MVector{num_out, F}, vaf.constants )
-	for vaf_term in vaf.terms
-		s_term = vaf_term.scalar_term
-		ret[ vaf_term.output_index ] +=	s_term.coefficient * getindex(xd, s_term.variable);
-	end
-	return ret
-end
-
-"Transform a `aff_func::MOI.ScalarAffineFunction` to a `MOI.VectorAffineFunction`."
-function _scalar_to_vector_aff_func( aff_func :: MOI.ScalarAffineFunction )
-    vec_terms = [ MOI.VectorAffineTerm( 1, term) for term = aff_func.terms ]
-    consts = [ aff_func.constant, ]
-    return MOI.VectorAffineFunction( vec_terms, consts )
-end
-
-"""
-	_arrays_to_vector_affine_function(
-		A, b = zeros(eltype(A), size(A,1)); 
-		variables 
-	)
-
-Provided a ``m×n`` matrix `A` and a vector `b`, describing a constraint 
-``Ax + b ≦ 0``, return a ``MOI.VectorAffineFunction`` to use as 
-a constraint for JuMP models with ``MOI.Nonpositives``.
-"""
-function _arrays_to_vector_affine_function( 
-	A :: AbstractMatrix{F}, 
-	b :: AbstractVector{T} = zeros(F, size(A,1)); 
-	variables
-) where{F<:Number, T<:Number}
-	m, n = size(A)
-	@assert n == length(vars) "`A` must have the same number of columns as there are `vars`."
-	@assert m == length(b) "`A` must have the same number of rows as there are entries in `b`."
-
-	S = Base.promote_type(F, T)
-	terms = collect(Iterators.flatten(
-		[ 	
-			[ 	
-				MOI.VectorAffineTerm( 
-					i, 
-					MOI.ScalarAffineTerm( S(row[j]), variables[j] ) 
-				) 
-			for j = 1:n ] 
-		for (i,row) = enumerate( eachrow(A) ) ] 
-	))
-	constants = S.(b)
-	return MOI.VectorAffineFunction( terms, constants )
-end
-
-function _vector_affine_function_to_matrix(
-	vaf :: MOI.VectorAffineFunction{T};
-	variables_columns_mapping :: AbstractDictionary{VariableIndex,Int} = Dictionary{VariableIndex,Int}()
-) where T
-	num_terms = length(vaf.terms)
-	row_inds = Vector{Int}(undef, num_terms)
-	col_inds = Vector{Int}(undef, num_terms)
-	vals = Vector{T}(undef, num_terms)
-	for (i,term) in enumerate(vaf.terms)
-		s_term = term.scalar_term
-		row_inds[i] = term.output_index
-		col_inds[i] = get!( 
-			variables_columns_mapping, 
-			s_term.variable,
-			length(variables_columns_mapping) + 1
-		)
-		vals[i] = s_term.coefficient
-	end
-	return sparse( 
-		row_inds, 
-		col_inds, 
-		vals,
-		MOI.output_dimension(vaf),	# m =̂ number of rows
-		length(variables_columns_mapping),	# n =̂ number of colums
-		+ # combine function for duplicates
-	)
-end 
-
-function _vector_affine_function_to_vector(
-	vaf :: MOI.VectorAffineFunction{T};
-) where T
-	return vaf.constants
-end 
-
-function _vector_affine_functions_to_matrix(
-	vafs :: AbstractVector{<:MOI.VectorAffineFunction};
-	variables_columns_mapping :: AbstractDictionary{VariableIndex,Int}
-)
-	return reduce(
-		vcat,
-		_vector_affine_function_to_matrix.(
-			vafs;
-			variables_columns_mapping
-		)
-	)
-end 
-
-
-function _vector_affine_functions_to_vector(
-	vafs :: AbstractVector{<:MOI.VectorAffineFunction};
-)
-	return reduce(
-		vcat,
-		_vector_affine_function_to_matrix.(vafs)
-	)
-end
-
-"""
-	transform_vector_affine_function(vaf, scal)
-
-Return a `MOI.VectorAffineFunction` that is applicable in the 
-scaled domain given by `scal::AbstractAffineScaler`.
-More precisely, suppose that `vaf` describes a constraint 
-``Ax + b ≦ 0`` and that `scal` applies the transformation 
-``ξ = Dx + c``.
-Then the new `MOI.VectorAffineFunction` should match 
-```math
-A(D^{-1}(ξ - c)) + b ≦ 0 :⇔ Ã ξ + b̃ ≦ 0,
-```
-with ``Ã = AD^{-1}`` and ``b̃ = b - AD^{-1} c``.
-"""
-function transform_vector_affine_function(
-	vaf :: MOI.VectorAffineFunction{T},
-	scal :: AbstractAffineScaler
-) where T
-	scaler_vars = _variable_indices(scal)
-	A = _vector_affine_function_to_matrix( 
-		vaf;
-		variables_columns_mapping = Dictionary( 
-			scaler_vars, eachindex( scaler_vars )
-		)
-	)
-	D_inv = _unscaling_matrix( scal )
-	c = _scaling_constants_vector( scal )
-	A_tilde = A*D_inv
-	
-	return _arrays_to_vector_affine_function(
-		A_tilde, vaf.constants .- A_tilde * c;
-		variables = scaler_vars
-	)
-end
 
 # Helpers for bound constraints and linear constraints expressed 
 # by arrays:
@@ -242,7 +60,6 @@ function _intersect_bound_vec(
 	return σ
 end
 
-
 """
 	_stepsizes_interval( x, d;
 		lb = [], ub = [],
@@ -266,9 +83,9 @@ function _stepsizes_interval(
 	d :: AbstractVector{D}; 
 	lb :: AbstractVector{LB} = X[], 
 	ub :: AbstractVector{UB} = X[],
-	A_eq :: AbstractMatrix{AEQ} = Matrix{X}(undef,0,0),
+	A_eq :: AbstractMatrix{AEQ} = Matrix{X}(undef,0,length(x)),
 	b_eq :: AbstractVector{BEQ} = X[], 
-	A_ineq :: AbstractMatrix{AINEQ} = Matrix{X}(undef,0,0),
+	A_ineq :: AbstractMatrix{AINEQ} = Matrix{X}(undef,0,length(x)),
 	b_ineq :: AbstractVector{BINEQ} = X[],
 ) where {X,D,LB,UB,AEQ,BEQ,AINEQ,BINEQ}
 
@@ -282,10 +99,11 @@ function _stepsizes_interval(
 	@assert size(A_eq, 1) == length(b_eq) "Dimension mismatch in `A_eq` and `b_eq`."
 	@assert size(A_ineq, 1) == length(b_ineq) "Dimension mismatch in `A_ineq` and `b_ineq`."
 
-    T = Base.promote_type(MIN_PRECISION, X,D,LB,UB,AEQ,BEQ,AINEQ,BINEQ)
-	
+    T = Base.promote_type(MIN_PRECISION,X,D,LB,UB,AEQ,BEQ,AINEQ,BINEQ)
+    unsuc_ret_val = ( T(NaN), T(NaN) )
+
     if iszero(d)
-        return (typemin(T),typemax(T)) :: Tuple{T,T}
+        return (typemin(T), typemax(T)) :: Tuple{T,T}
     end
 
 	if isempty( A_eq )
@@ -329,11 +147,9 @@ function _stepsizes_interval(
 		# there are equality constraints
 		# they have to be all fullfilled and we loop through them one by one (rows of A_eq)
 		num_eq = size(A_eq, 1)
-		_b = isempty(b_eq) ? zeros(AEQ, num_eq) : b_eq
+		_b = isempty(b_eq) ? zeros(T, num_eq) : b_eq
 
-		F = Base.promote_type( AEQ, eltype(_b) )
-		σ = F(0)
-		σ_unset = true
+		σ = T(Inf)
 		for i = 1 : N
 			a = A_eq[i, :]
 
@@ -344,29 +160,29 @@ function _stepsizes_interval(
 			else
                 # check for primal feasibility of `x`:
 				if !(iszero(a'x + _b[i]))
-					return nothing
+					return unsuc_ret_val
 				else
 					continue
 				end
 			end
 			
-			if σ_unset
+			if isinf(σ)
 				σ = σ_i
-				σ_unset = false
 			else
 				if !(σ_i ≈ σ)
-					return nothing
+					return unsuc_ret_val
 				end
 			end
 		end
 		
-		if σ_unset
+		if isinf(σ)
 			# only way this could happen:
 			# ad == 0 for all i && x feasible w.r.t. eq const
             return _stepsizes_interval( 
 				x, d; 
-				lb, ub, A_ineq, b_ineq
-			)
+				lb, ub, A_ineq, b_ineq,
+                A_eq = Matrix{T}(undef, 0, n_vars)
+			) :: Tuple{T,T}
 		end
 			
 		# check if x + σd is compatible with the other constraints
@@ -377,7 +193,7 @@ function _stepsizes_interval(
 		ub_incompat = !isempty(ub) && any(x_trial .> ub )
 		ineq_incompat = !isempty(A_ineq) && any( A_ineq * x_trial .+ _b_ineq .> 0 )
 		if lb_incompat || ub_incompat || ineq_incompat			
-			return nothing
+			return unsuc_ret_val
 		else
 			return (σ, σ)
 		end					
@@ -391,7 +207,7 @@ function _intersect_bounds(
 )
 	s_interval = _stepsizes_interval( x, d; kwargs... )
 
-	isnothing( s_interval ) && return impossible_val
+	all(isnan.( s_interval )) && return impossible_val
 
 	σ_neg, σ_pos = s_interval
 	

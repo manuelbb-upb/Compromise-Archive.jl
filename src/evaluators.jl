@@ -36,6 +36,8 @@ macro forward_pipes(typename_ex, extractor_method_ex, fs)
     nothing)
 end
 
+Base.convert( T :: Type{<:AbstractIndices{I}}, x :: AbstractVector{I} ) where I = T(x)
+
 #=====================================================================
 AbstractInnerEvaluator
 =====================================================================#
@@ -113,33 +115,52 @@ function eval_at_vecs( ev :: AbstractInnerEvaluator, X :: VecVec, args... )
 	return _eval_at_vecs( ev, X, args... )
 end
 
-_provides_gradients( :: AbstractInnerEvaluator ) :: Bool = false
-_provides_jacobian( :: AbstractInnerEvaluator ) :: Bool = false
-_provides_hessians( :: AbstractInnerEvaluator ) :: Bool = false
+"Returns the integer `n` for which the `n`-th derivative of `aie` is constant."
+_diff_order( aie :: AbstractInnerEvaluator ) = Val(-1)
 
-_gradient( :: AbstractInnerEvaluator, :: Vec; output_number ) = nothing
-_jacobian( :: AbstractInnerEvaluator, :: Vec ) = nothing 
+_provides_gradients( aie :: AbstractInnerEvaluator ) :: Bool = false
+_provides_jacobian( aie :: AbstractInnerEvaluator ) :: Bool = false
+_provides_hessians( aie :: AbstractInnerEvaluator ) :: Bool = false
+
+_gradient( :: AbstractInnerEvaluator, x :: Vec; output_number ) = nothing
+_jacobian( :: AbstractInnerEvaluator, x :: Vec ) = nothing
 _partial_jacobian( :: AbstractInnerEvaluator, :: Vec ; output_numbers ) = nothing 
 _hessian( :: AbstractInnerEvaluator, :: Vec; output_number ) = nothing
 
 # derived methods that are used in other places
-function provides_gradients( ev :: AbstractInnerEvaluator ) 
+_can_derive_gradients(aie::AbstractInnerEvaluator, :: Val) = false
+_can_derive_gradients(aie::AbstractInnerEvaluator, :: Val{0}) = true
+_can_derive_hessian(aie::AbstractInnerEvaluator, :: Val ) = false
+_can_derive_hessian(aie::AbstractInnerEvaluator, :: Union{Val{0},Val{1}} ) = true
+function _can_derive_gradients( ev :: AbstractInnerEvaluator ) 
 	if _provides_gradients( ev )
-		return true 
+		return true
 	else
 		return _provides_jacobian( ev )
 	end
 end
+function provides_gradients(aie::AbstractInnerEvaluator)
+	return (
+		_can_derive_gradients(aie, _diff_order(aie)) ||
+		_can_derive_gradients(aie)
+	)
+end
 
-function provides_jacobian( ev :: AbstractInnerEvaluator ) 
+function _can_derive_jacobian( ev :: AbstractInnerEvaluator ) 
 	if _provides_jacobian( ev )
 		return true 
 	else
 		return _provides_gradients( ev )
 	end
 end
+function provides_jacobian(aie::AbstractInnerEvaluator)
+	return (
+		_can_derive_gradients(aie, _diff_order(aie)) ||
+		_can_derive_jacobian(aie)
+	)
+end
 
-provides_hessians( ev :: AbstractInnerEvaluator ) = _provides_hessians( ev )
+provides_hessians( aie :: AbstractInnerEvaluator ) = _provides_hessians( aie ) || _can_derive_hessian(aie, _diff_order(aie))
 
 function partial_jacobian( ev :: AbstractInnerEvaluator, x :: Vec; output_numbers )
 	J = _partial_jacobian( ev, x; output_numbers )
@@ -151,16 +172,34 @@ function partial_jacobian( ev :: AbstractInnerEvaluator, x :: Vec; output_number
 end
 
 # helper
+function _zero_grad( aie, x )
+	return spzeros(eltype(x), length(x))
+end
+
+function _zero_jac( aie, x )
+	return spzeros(eltype(x), num_outputs(aie), length(x))
+end
+
+function _zero_partial_jac( aie, x; output_numbers )
+	return spzeros(eltype(x), length(output_numbers), length(x))
+end
+
 function _jacobian_from_grads( ev, x, :: Nothing )
-	return transpose( 
-		hcat( (gradient(ev, x; output_number) for output_number=1:num_outputs(ev) )... )
+	return transpose(
+		reduce(
+			hcat, 
+			gradient(ev, x; output_number) for output_number=1:num_outputs(ev)
+		)
 	)
 end
 
 #helper 
 function _jacobian_from_grads( ev, x, output_numbers )
 	return transpose(
-		hcat( (gradient(ev, x; output_number) for output_number in output_numbers)... )
+		reduce(
+			hcat,
+			gradient(ev, x; output_number) for output_number in output_numbers
+		)
 	)
 end
 
@@ -174,6 +213,13 @@ function jacobian( ev :: T, x :: Vec; output_numbers = nothing ) where T <: Abst
 	elseif _provides_gradients( ev )
 		return _jacobian_from_grads( ev, x, output_numbers)
 	else
+		if _can_derive_gradients(ev, _diff_order(ev))
+			if isnothing(output_numbers)
+				return _zero_jac(ev, x)
+			else
+				return _zero_partial_jac(ev,x; output_numbers)
+			end
+		end
 		error("`jacobian` not availabe for evaluator of type $(T).")
 	end
 end
@@ -184,6 +230,9 @@ function gradient( ev :: T, x :: Vec; output_number ) where T <: AbstractInnerEv
 	elseif _provides_jacobian( ev )
 		return vec( jacobian( ev, x; output_numbers = [output_number,] ) )
 	else
+		if _can_derive_gradients(ev, _diff_order(ev))
+			return _zero_grad(ev, x)
+		end
 		error("`gradient` not availabe for evaluator of type $(T).")
 	end
 end
@@ -192,6 +241,10 @@ function hessian( ev :: T, x :: Vec; output_number ) where T <: AbstractInnerEva
 	if _provides_hessians( ev )
 		return _hessian( ev, x; output_number )
 	else
+		if _can_derive_hessian(ev, _diff_order(ev))
+			n_vars = length(x)
+			return spzeros( eltype(x), n_vars, n_vars )
+		end
 		error("`hessian` not availabe for evaluator of type $(T).")
 	end
 end
@@ -651,6 +704,8 @@ struct InnerIdentity <: AbstractInnerEvaluator
 	n_out :: Int 
 end 
 
+_diff_order(::InnerIdentity) = Val(1)
+
 function _eval_at_vec( ii :: InnerIdentity, x :: Vec )
 	@assert length(x) == ii.n_out 
 	return x 
@@ -683,28 +738,71 @@ function _hessian( ii :: InnerIdentity, args... )
 end
 
 #=====================================================================
+LinearVectorMapping <: AbstractInnerEvaluator 
+=====================================================================#
+@with_kw struct LinearVectorMapping{
+	R <: Real,
+	AT <: AbstractMatrix{R},
+	BT <: AbstractVector{R},
+} <: AbstractInnerEvaluator
+	A :: AT
+	b :: BT
+	counter :: Base.RefValue{Int} = Ref(0)
+	n_out :: Int = size(A,1)
+	n_vars :: Int = size(A,2)
+
+	@assert n_out == length(b)
+end
+
+_diff_order(lvm :: LinearVectorMapping) = Val(1)
+function LinearVectorMapping( _A :: AbstractMatrix{T}, _b :: AbstractVector{F} ) where {T,F}
+	R = Base.promote_type(T,F)
+	
+	return LinearVectorMapping(;
+		A = sparse_or_static(_A, R ),
+		b = sparse_or_static(_b, R ),
+	)
+end
+
+num_eval_counter(lvm::LinearVectorMapping) = lvm.counter
+num_outputs(lvm::LinearVectorMapping) = lvm.num_outputs
+
+function _eval_at_vec(lvm::LinearVectorMapping, x::Vec)
+    return lvm.A * x .+ lvm.b
+end
+
+function _eval_at_vecs(lvm::LinearVectorMapping, X::VecVec)
+    _X = reduce(hcat, X)    # can this be done lazily? ApplyArray(hcat, X...), but splatting is slow
+    _tmp = lvm.A * _X .+ lvm.b
+    return collect(eachcol(_tmp))
+end
+
+_provides_gradients(::LinearVectorMapping) = true
+_provides_jacobian(::LinearVectorMapping) = true
+_provides_hessian(::LinearVectorMapping) = true
+
+function _gradient(lvm::LinearVectorMapping, x::Vec; output_number)
+    return vec(lvm.A[output_number,:])
+end
+function _jacobian(lvm::LinearVectorMapping, x::Vec)
+    return lvm.A
+end
+function _partial_jacobian(lvm::LinearVectorMapping, ::Vec; output_numbers)
+    return lvm.A[output_numbers, :]
+end
+function _hessian(lvm::LinearVectorMapping,::Vec; output_number)
+    return spzeros(lvm.n_vars, lvm.n_vars)
+end
+
+#=====================================================================
 OuterIdentity <: AbstractOuterEvaluator{true}
 =====================================================================#
 # ("atomic" building block)
-@with_kw struct OuterIdentity{
-	II <: AbstractIndices{VariableIndex},
-} <: AbstractOuterEvaluator{true}
-	input_indices :: II 
+@with_kw struct OuterIdentity <: AbstractOuterEvaluator{true}
+	input_indices :: Indices{VariableIndex}
 	num_inputs :: Int = length(input_indices)
 	inner :: InnerIdentity = InnerIdentity( num_inputs )
 	output_indices = Indices([DependentIndex() for i=1:num_inputs])
-	
-	function OuterIdentity{II}(
-		input_indices :: II, num_inputs :: Int, inner :: InnerIdentity, output_indices
-	) where II <: AbstractIndices{VariableIndex}
-		return new{II}(input_indices, num_inputs, inner, output_indices)
-	end
-	function OuterIdentity(
-		_input_indices :: _II, num_inputs :: Int, inner :: InnerIdentity, output_indices
-	) where {_II <: AbstractVector{VariableIndex}}
-		input_indices = Indices( _input_indices )
-		return new{typeof(input_indices)}(input_indices, num_inputs, inner, output_indices)
-	end
 end
 
 inner_transformer( oi :: OuterIdentity ) = oi.inner
@@ -720,28 +818,16 @@ VecFun <: AbstractOuterEvaluator{true}
 @with_kw struct VecFunc{
 	I <: AbstractInnerEvaluator,
 	C <: AbstractSurrogateConfig,
-	II <: AbstractIndices{VariableIndex},
 #OI <: AbstractVector{<:DependentIndex}
 } <: AbstractOuterEvaluator{true}
 	transformer :: I
 	model_cfg :: C 
 	num_outputs :: Int 
 	
-	input_indices :: II 
+	input_indices :: Indices{VariableIndex} 
 	output_indices = Indices([DependentIndex() for i=1:num_outputs])
 
 	num_inputs :: Int = length(input_indices)
-	function VecFunc{I,C,II}(
-		transformer::I, model_cfg::C, num_outputs::Int, input_indices::II, output_indices, num_inputs
-	) where {I <: AbstractInnerEvaluator,C <: AbstractSurrogateConfig,II <: AbstractIndices{VariableIndex}}
-		return new{I,C,II}(transformer, model_cfg, num_outputs, input_indices, output_indices, num_inputs)
-	end
-	function VecFunc(
-		transformer::I, model_cfg::C, num_outputs::Int, _input_indices::_II, output_indices, num_inputs
-	) where {I <: AbstractInnerEvaluator,C <: AbstractSurrogateConfig, _II <: AbstractVector{VariableIndex}}
-		input_indices = Indices(_input_indices) 
-		return new{I,C,typeof(input_indices)}(transformer, model_cfg, num_outputs, input_indices, output_indices, num_inputs)
-	end
 end
 
 inner_transformer( vfun :: VecFunc ) = vfun.transformer
