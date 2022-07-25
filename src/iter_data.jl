@@ -2,12 +2,12 @@
 #=======================================================================
 Iterate
 ========================================================================#
-@with_kw struct Iterate{F<:Real, VT <: AbstractVector{F}}
-	unscaled_vector :: VT
-	scaled_vector :: VT
+Base.@kwdef struct Iterate{F<:Real, VT <: AbstractVector{F}}
+	  unscaled_vector :: VT
+	  scaled_vector :: VT
 
-	unscaled_dict :: Dictionary{VariableIndex, F}
-	scaled_dict :: Dictionary{VariableIndex, F}
+	  unscaled_dict :: Dictionary{VariableIndex, F}
+	  scaled_dict :: Dictionary{VariableIndex, F}
 end
 
 iter_site_vector(iterate :: Iterate) = iterate.unscaled_vector
@@ -20,23 +20,24 @@ _precision( :: Iterate{F,VT} ) where{F,VT} = F
 #=======================================================================
 IterData
 ========================================================================#
-@with_kw struct IterData{
-	F <: Real,
-	VT <: AbstractVector{F}
+Base.@kwdef struct IterData{
+	  F <: Real,
+	  VT <: AbstractVector{F}
 }
-	iterate :: Iterate{F,VT}
+	  iterate :: Iterate{F,VT}
 
-	evaluation_cache :: Dictionary{FunctionIndex, F}
+    evaluation_cache :: Dictionary{FUNCTION_INDEX, F}
+    jacobian_cache :: Dictionary{DependentIndex, Dictionary{VariableIndex, F}}
 
-	radius :: F 
+	  radius :: F
 
-	x_index :: Int
+	  x_index :: Int
 
-	objective_indices :: Indices{ObjectiveIndex}
-	eq_constraint_indices :: Indices{ConstraintIndexEq}
-	ineq_constraint_indices :: Indices{ConstraintIndexIneq}
-	nl_eq_constraint_indices :: Indices{NLConstraintIndexEq}
-	nl_ineq_constraint_indices :: Indices{NLConstraintIndexIneq}
+	  objective_indices :: Indices{ObjectiveIndex}
+	  eq_constraint_indices :: Indices{ConstraintIndexEq}
+	  ineq_constraint_indices :: Indices{ConstraintIndexIneq}
+	  nl_eq_constraint_indices :: Indices{NLConstraintIndexEq}
+	  nl_ineq_constraint_indices :: Indices{NLConstraintIndexIneq}
 end
 
 _precision( :: IterData{F,VT} ) where{F,VT} = F

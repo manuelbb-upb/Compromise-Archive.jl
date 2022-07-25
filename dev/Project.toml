@@ -1,0 +1,7 @@
+[deps]
+Compromise = "5a4e6823-d172-4704-87a9-1b6230dfe236"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+OSQP = "ab2f91bb-94b4-55e3-9ba0-7f65df51de79"
+
+[extras]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

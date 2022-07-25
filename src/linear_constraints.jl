@@ -91,13 +91,13 @@ function _stepsizes_interval(
 
     # TODO can we pass precalculated `Ax` values for `A_eq` and `A_ineq`
     n_vars = length(x)
-	
-	@assert length(lb) == n_vars "Dimension mismatch in `lb`."
-	@assert length(ub) == n_vars "Dimension mismatch in `ub`."
-	@assert size(A_eq, 2) == n_vars "Dimension mismatch in `A_eq`."
-	@assert size(A_ineq, 2) == n_vars "Dimension mismatch in `A_ineq`."
-	@assert size(A_eq, 1) == length(b_eq) "Dimension mismatch in `A_eq` and `b_eq`."
-	@assert size(A_ineq, 1) == length(b_ineq) "Dimension mismatch in `A_ineq` and `b_ineq`."
+
+    @assert length(lb) == n_vars "Dimension mismatch in `lb`."
+    @assert length(ub) == n_vars "Dimension mismatch in `ub`."
+    @assert size(A_eq, 2) == n_vars "Dimension mismatch in `A_eq`."
+    @assert size(A_ineq, 2) == n_vars "Dimension mismatch in `A_ineq`."
+    @assert size(A_eq, 1) == length(b_eq) "Dimension mismatch in `A_eq` and `b_eq`."
+    @assert size(A_ineq, 1) == length(b_ineq) "Dimension mismatch in `A_ineq` and `b_ineq`."
 
     T = Base.promote_type(MIN_PRECISION,X,D,LB,UB,AEQ,BEQ,AINEQ,BINEQ)
     unsuc_ret_val = ( T(NaN), T(NaN) )

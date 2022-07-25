@@ -27,7 +27,7 @@ __scaling_constants_vector( scal :: AbstractAffineScaler ) = nothing
 
 # derived (callable) methods 
 function _var_pos( scal :: AbstractAffineScaler, vi :: ScalarIndex )
-    findfirst(isequal(vi), _variables_indices(scal))
+    findfirst(isequal(vi), _variable_indices(scal).values)
 end
 
 macro not_defined_fallback( hopefully_defined_return_expr, alternative_expr )
@@ -63,7 +63,7 @@ end
 
 function _matrix_from_coeff_dict( vars , coeff_dict_of_dicts )
 	return transpose(
-		reduce( 
+		reduce(
 			hcat,
 			collect(getindices( coeff_dict_of_dicts[vi], vars ) for vi = vars )
 		)
@@ -85,10 +85,10 @@ end
 function _scaling_coefficients( scal :: AbstractAffineScaler, vi :: ScalarIndex )
 	return @not_defined_fallback(
 		__scaling_coefficients(scal, vi),
-		_matrix_to_coeff_dict( 
-			__scaling_matrix( scal ), 
-			_variable_indices(scal), 
-			_var_pos(scal, vi) 
+		_matrix_to_coeff_dict(
+			__scaling_matrix( scal ),
+			_variable_indices(scal),
+			_var_pos(scal, vi)
 		)
 	)
 end
@@ -110,10 +110,10 @@ end
 function _unscaling_coefficients( scal :: AbstractAffineScaler, vi :: ScalarIndex )
 	return @not_defined_fallback(
 		__unscaling_coefficients( scal, vi ),
-		_matrix_to_coeff_dict( 
-			__unscaling_matrix(scal), 
-			_variable_indices(scal), 
-			_var_pos(scal, vi) 
+		_matrix_to_coeff_dict(
+			__unscaling_matrix(scal),
+			_variable_indices(scal),
+			_var_pos(scal, vi)
 		)
 	)
 end
@@ -147,7 +147,7 @@ function transform( x :: AbstractDictionary, scal :: AbstractAffineScaler )
 		keys(x)
 	)
 end
- 
+
 function untransform( x :: AbstractDictionary, scal :: AbstractAffineScaler )
 	_x = map( ((vi,xi),) -> xi - _scaling_constant(scal, vi), pairs(x) )
 	return map(
@@ -163,7 +163,7 @@ macro set_if_needed(
 )
 	return quote
 		local provided_params = $( esc( kwarg_name_expr ) )
-		local var_val = if isnothing( provided_params ) && 
+		local var_val = if isnothing( provided_params ) &&
 			$(Meta.quot(kwarg_name_expr)) in $(esc(kwarg_symbols_expr))
 			$(esc(alternative_params_expr))
 		else
@@ -197,123 +197,123 @@ macro check_turtle_mat( _arg_name, n_vars_expr )
 end
 
 function _init( scal_type :: Type{<:AbstractAffineScaler};
-	variables :: AbstractVector{<:ScalarIndex} = nothing,
-	variable_indices :: Union{Indices{<:ScalarIndex}, Nothing} = nothing,
-	scaling_coefficients_dict_of_dicts :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:AbstractDictionary}} = nothing,
-	scaling_matrix :: Union{Nothing,AbstractMatrix{<:Real}} = nothing, 
-	scaling_constants_dict :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:Real}} = nothing,
-	scaling_constants_vector :: Union{Nothing,AbstractVector{<:Real}} = nothing,
-	unscaling_coefficients_dict_of_dicts :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:AbstractDictionary}} = nothing,
-	unscaling_matrix :: Union{Nothing, AbstractMatrix} = nothing
+    variables :: Union{Nothing,AbstractVector{<:ScalarIndex}} = nothing,
+    variable_indices :: Union{Indices{<:ScalarIndex}, Nothing} = nothing,
+    scaling_coefficients_dict_of_dicts :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:AbstractDictionary}} = nothing,
+    scaling_matrix :: Union{Nothing,AbstractMatrix{<:Real}} = nothing,
+    scaling_constants_dict :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:Real}} = nothing,
+    scaling_constants_vector :: Union{Nothing,AbstractVector{<:Real}} = nothing,
+    unscaling_coefficients_dict_of_dicts :: Union{Nothing, AbstractDictionary{<:ScalarIndex, <:AbstractDictionary}} = nothing,
+    unscaling_matrix :: Union{Nothing, AbstractMatrix} = nothing
 )
-	@assert (!isnothing(variables) && !isempty(variables)) || 
-		(!isnothing(variable_indices) && !isempty(variable_indices))
+    @assert (!isnothing(variables) && !isempty(variables)) ||
+      (!isnothing(variable_indices) && !isempty(variable_indices))
 
-	@assert !(isnothing(scaling_constants_dict) && isnothing(scaling_constants_vector))
-	@assert any( !isnothing(_arg) for _arg in [
-		scaling_coefficients_dict_of_dicts, scaling_matrix, 
-		unscaling_coefficients_dict_of_dicts, unscaling_matrix
-	])
+    @assert !(isnothing(scaling_constants_dict) && isnothing(scaling_constants_vector))
+    @assert any(!isnothing(_arg) for _arg in [
+        scaling_coefficients_dict_of_dicts, scaling_matrix,
+        unscaling_coefficients_dict_of_dicts, unscaling_matrix
+    ])
 
-	kw_arg_symbols = Base.kwarg_decl( @which( __init(scal_type) ) )
-	
-	var_inds = isnothing(variable_indices) ? Indices(variables) : variable_indices
+    kw_arg_symbols = Base.kwarg_decl(@which(__init(scal_type)))
 
-	compute_unscaling_matrix = false
-	if (:unscaling_matrix in kw_arg_symbols || :unscaling_coefficients_dict_of_dicts in kw_arg_symbols) && (
-		isnothing(unscaling_matrix) && isnothing(unscaling_coefficients_dict_of_dicts)
-	)
-		compute_unscaling_matrix = true
-		push!( kw_arg_symbols, :scaling_matrix )
-	end
+    var_inds = isnothing(variable_indices) ? Indices(variables) : variable_indices
 
-	compute_scaling_matrix = false
-	if (:scaling_matrix in kw_arg_symbols || :scaling_coefficients_dict_of_dicts in kw_arg_symbols) && (
-		isnothing(scaling_matrix) && isnothing(scaling_coefficients_dict_of_dicts)
-	)
-		compute_scaling_matrix = true
-		push!( kw_arg_symbols, :unscaling_matrix )
-	end
+    compute_unscaling_matrix = false
+    if (:unscaling_matrix in kw_arg_symbols || :unscaling_coefficients_dict_of_dicts in kw_arg_symbols) && (
+        isnothing(unscaling_matrix) && isnothing(unscaling_coefficients_dict_of_dicts)
+    )
+        compute_unscaling_matrix = true
+        push!(kw_arg_symbols, :scaling_matrix)
+    end
 
-	@set_if_needed( variables, kw_arg_symbols,
-		collect(variables)
-	)
+    compute_scaling_matrix = false
+    if (:scaling_matrix in kw_arg_symbols || :scaling_coefficients_dict_of_dicts in kw_arg_symbols) && (
+        isnothing(scaling_matrix) && isnothing(scaling_coefficients_dict_of_dicts)
+    )
+        compute_scaling_matrix = true
+        push!(kw_arg_symbols, :unscaling_matrix)
+    end
 
-	@set_if_needed( scaling_constants_dict, kw_arg_symbols,
-		Dictionary( var_inds, scaling_constants_vector )
-	)
+    @set_if_needed(variables, kw_arg_symbols,
+        collect(variables)
+    )
 
-	@set_if_needed( scaling_constants_vector, kw_arg_symbols,
-		collect( getindices( scaling_constants_dict, var_inds) )
-	)
+    @set_if_needed(scaling_constants_dict, kw_arg_symbols,
+        Dictionary(var_inds, scaling_constants_vector)
+    )
 
-	if compute_scaling_matrix
-		@set_if_needed( unscaling_matrix, kw_arg_symbols,
-			_matrix_from_coeff_dict( var_inds, unscaling_coefficients_dict_of_dicts )
-		)
-		# 🐢unscaling_matrix is now available
-		scaling_matrix = LinearAlgebra.inv(🐢unscaling_matrix)
-	else
-		@set_if_needed( scaling_matrix, kw_arg_symbols,
-			_matrix_from_coeff_dict( var_inds, scaling_coefficients_dict_of_dicts )
-		)
-		scaling_matrix = 🐢scaling_matrix
-	end
+    @set_if_needed(scaling_constants_vector, kw_arg_symbols,
+        collect(getindices(scaling_constants_dict, var_inds))
+    )
 
-	if compute_unscaling_matrix
-		@set_if_needed( scaling_matrix, kw_arg_symbols,
-			_matrix_from_coeff_dict( var_inds, scaling_coefficients_dict_of_dicts )
-		)
-		# 🐢scaling_matrix is now available
-		unscaling_matrix = LinearAlgebra.inv(🐢scaling_matrix)
-	else
-		@set_if_needed( unscaling_matrix, kw_arg_symbols,
-			_matrix_from_coeff_dict( var_inds, unscaling_coefficients_dict_of_dicts )
-		)
-		unscaling_matrix = 🐢unscaling_matrix
-	end
+    if compute_scaling_matrix
+        @set_if_needed(unscaling_matrix, kw_arg_symbols,
+            _matrix_from_coeff_dict(var_inds, unscaling_coefficients_dict_of_dicts)
+        )
+        # 🐢unscaling_matrix is now available
+        scaling_matrix = LinearAlgebra.inv(🐢unscaling_matrix)
+    else
+        @set_if_needed(scaling_matrix, kw_arg_symbols,
+            _matrix_from_coeff_dict(var_inds, scaling_coefficients_dict_of_dicts)
+        )
+        scaling_matrix = 🐢scaling_matrix
+    end
 
-	@set_if_needed( scaling_matrix, kw_arg_symbols,
-		_matrix_from_coeff_dict( var_inds, unscaling_coefficients_dict_of_dicts )
-	)	
+    if compute_unscaling_matrix
+        @set_if_needed(scaling_matrix, kw_arg_symbols,
+            _matrix_from_coeff_dict(var_inds, scaling_coefficients_dict_of_dicts)
+        )
+        # 🐢scaling_matrix is now available
+        unscaling_matrix = LinearAlgebra.inv(🐢scaling_matrix)
+    else
+        @set_if_needed(unscaling_matrix, kw_arg_symbols,
+            _matrix_from_coeff_dict(var_inds, unscaling_coefficients_dict_of_dicts)
+        )
+        unscaling_matrix = 🐢unscaling_matrix
+    end
 
-	@set_if_needed( unscaling_matrix, kw_arg_symbols,
-		_matrix_from_coeff_dict( var_inds, unscaling_coefficients_dict_of_dicts )
-	)
+    @set_if_needed(scaling_matrix, kw_arg_symbols,
+        _matrix_from_coeff_dict(var_inds, unscaling_coefficients_dict_of_dicts)
+    )
 
-	@set_if_needed( scaling_coefficients_dict_of_dicts, kw_arg_symbols,
-		dictionary( vi => _matrix_to_coeff_dict( scaling_matrix, variables, vi_pos ) for (vi_pos,vi) = enumerate(variables) )
-	)
-	
-	@set_if_needed( unscaling_coefficients_dict_of_dicts, kw_arg_symbols,
-		dictionary( vi => _matrix_to_coeff_dict( unscaling_matrix, variables, vi_pos ) for (vi_pos,vi) = enumerate(variables) )
-	)
-	
-	n_vars = length(variable_indices)
-	for _arg in [ 
-		🐢scaling_coefficients_dict_of_dicts, 
-		🐢unscaling_coefficients_dict_of_dicts,
-		🐢scaling_constants_dict,	
-		🐢scaling_constants_vector,
-		]
-		@check_turtle_length _arg n_vars
-	end
-	for _arg in [ 
-		🐢scaling_matrix,
-		🐢unscaling_matrix
-		]
-		@check_turtle_mat _arg n_vars
-	end
-	return __init( scal_type;
-		variables = 🐢variables,
-		variable_indices = var_inds,
-		scaling_coefficients_dict_of_dicts = 🐢scaling_coefficients_dict_of_dicts,
-		scaling_matrix = 🐢scaling_matrix, 
-		scaling_constants_dict = 🐢scaling_constants_dict,
-		scaling_constants_vector = 🐢scaling_constants_vector, 
-		unscaling_coefficients_dict_of_dicts = 🐢unscaling_coefficients_dict_of_dicts, 
-		unscaling_matrix = 🐢unscaling_matrix
-	)
+    @set_if_needed(unscaling_matrix, kw_arg_symbols,
+        _matrix_from_coeff_dict(var_inds, unscaling_coefficients_dict_of_dicts)
+    )
+
+    @set_if_needed(scaling_coefficients_dict_of_dicts, kw_arg_symbols,
+        dictionary(vi => _matrix_to_coeff_dict(scaling_matrix, variables, vi_pos) for (vi_pos, vi) = enumerate(variables))
+    )
+
+    @set_if_needed(unscaling_coefficients_dict_of_dicts, kw_arg_symbols,
+        dictionary(vi => _matrix_to_coeff_dict(unscaling_matrix, variables, vi_pos) for (vi_pos, vi) = enumerate(variables))
+    )
+
+    n_vars = length(variable_indices)
+    for _arg in [
+        🐢scaling_coefficients_dict_of_dicts,
+        🐢unscaling_coefficients_dict_of_dicts,
+        🐢scaling_constants_dict,
+        🐢scaling_constants_vector,
+    ]
+        @check_turtle_length _arg n_vars
+    end
+    for _arg in [
+        🐢scaling_matrix,
+        🐢unscaling_matrix
+    ]
+        @check_turtle_mat _arg n_vars
+    end
+    return __init(scal_type;
+        variables=🐢variables,
+        variable_indices=var_inds,
+        scaling_coefficients_dict_of_dicts=🐢scaling_coefficients_dict_of_dicts,
+        scaling_matrix=🐢scaling_matrix,
+        scaling_constants_dict=🐢scaling_constants_dict,
+        scaling_constants_vector=🐢scaling_constants_vector,
+        unscaling_coefficients_dict_of_dicts=🐢unscaling_coefficients_dict_of_dicts,
+        unscaling_matrix=🐢unscaling_matrix
+    )
 end
 
 # TODO: partial jacobian, gradients ?
@@ -503,24 +503,35 @@ __scaling_constant( scal::FSCALER, vi :: ScalarIndex ) = getindex(scal.scaling_c
 
 #####
 
-struct NoVarScaling{ V } <: AbstractAffineScaler 
-	variables :: V
-	n_vars :: Int 
+struct NoVarScaling{ V } <: AbstractAffineScaler
+	variable_indices :: V
+	n_vars :: Int
 end
 
-__init( :: Type{<:NoVarScaling};
-	variables,
-	kwargs...
-) = NoVarScaling(variables, length(variables))
+# `_init` instead of `__init` because we need
+# no further information
+function _init(
+    :: Type{<:NoVarScaling};
+	  variables = nothing, variable_indices = nothing,
+	  kwargs...
+)
+    vars = if isnothing(variable_indices)
+        Indices(variables)
+    else
+        variable_indices
+    end
+    return NoVarScaling(vars, length(vars))
+end
 
+__variable_indices(scal :: NoVarScaling) = scal.variable_indices
 __scaling_matrix(scal :: NoVarScaling) = LinearAlgebra.I( scal.n_vars )
 __unscaling_matrix(scal :: NoVarScaling) = _scaling_matrix(scal)
 __scaling_constants_vector(scal :: NoVarScaling) = zeros(Bool, scal.n_vars)	# TODO `Bool` sensible here?
 
 # overwrite defaults
-transform( x, :: NoVarScaling ) = copy(x) 
+transform( x, :: NoVarScaling ) = copy(x)
 untransform( _x, :: NoVarScaling ) = copy(_x)
- 
+
 # derived functions and helpers, used by the algorithm:
 
 # from two scalers 
@@ -551,12 +562,12 @@ function compose_with_inverse_scaler(
 	scaling_constants_vector = _scaling_constants_vector(scal2)[ind2] - scaling_matrix * _scaling_constants_vector(scal1)
 
 	return _init( target_type;
-		variable_indices,
+		variable_indices = var_inds,
 		scaling_matrix,
 		scaling_constants_vector,
 	)
 end
 
 function compose_with_inverse_scaler( scal1 :: NoVarScaling, :: NoVarScaling )
-	return scal1 
+	return scal1
 end

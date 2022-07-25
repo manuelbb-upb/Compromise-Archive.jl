@@ -5,3 +5,5 @@ LocalPreferences.toml
 *dev*.jl
 .SpaceVim.d
 flake*
+/emacs_layout
+/__LAST__

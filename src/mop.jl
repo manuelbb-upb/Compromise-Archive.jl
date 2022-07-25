@@ -4,18 +4,21 @@
 # * `ObjectiveIndex`, `NLConstraintIndexEq`, …
 # * `AbstractOuterEvaluator` (evaluators.jl)
 
-Broadcast.broadcastable( mop :: AbstractMOP ) = Ref( mop );
+Broadcast.broadcastable(mop::AbstractMOP) = Ref(mop);
 
 # MANDATORY methods 
 # one of:
 "Return a vector of `VariableIndice`s used in the model."
-__variables(:: AbstractMOP) :: Union{Nothing,AbstractVector{VariableIndex}} = nothing
-__variable_indices(::AbstractMOP) :: Union{Nothing,Indices{VariableIndex}} = nothing
+__variables(::AbstractMOP)::Union{Nothing,AbstractVector{VariableIndex}} = nothing
+__variable_indices(::AbstractMOP)::Union{Nothing,Indices{VariableIndex}} = nothing
 
 "Return the lower bound for the variable with Index `VariableIndex`."
-_lower_bound( :: AbstractMOP, :: VariableIndex) :: Real = nothing 
+_lower_bound(::AbstractMOP, ::VariableIndex)::Real = nothing
 "Return the upper bound for the variable with Index `VariableIndex`."
-_upper_bound( :: AbstractMOP, :: VariableIndex) :: Real = nothing
+_upper_bound(::AbstractMOP, ::VariableIndex)::Real = nothing
+
+# optional:
+_primal_value(::AbstractMOP, ::VariableIndex)::Real = MIN_PRECISION(NaN)
 
 # implement for all supported index types:
 """
@@ -23,276 +26,184 @@ _upper_bound( :: AbstractMOP, :: VariableIndex) :: Real = nothing
 
 Return an iterable object of all indices of type `index_type` stored in `mop`.
 """
-_all_indices( :: AbstractMOP, T :: Type{<:FunctionIndex} ) = T[]
+_all_indices(::AbstractMOP, T::Type{<:FunctionIndex}) = T[]
 
-function _all_indices(mop :: AbstractMOP, T :: Type{FunctionIndex})
-    return Iterators.flatten( _all_indices(mop, F) for F in subtypes(T) )
+function _all_indices(mop::AbstractMOP, T::Type{FunctionIndex})
+    return Iterators.flatten(_all_indices(mop, F) for F in subtypes(T))
 end
 
 # for objectives and nl_constraints (and linear constraints if the "getter"s are defined)
-_get( :: AbstractMOP, :: FunctionIndex ) :: AbstractOuterEvaluator = nothing
+_get(::AbstractMOP, ::FunctionIndex)::AbstractOuterEvaluator = nothing
 
 # Methods for editable models:
 # Implement for `mop::AbstractMOP{true}`
 
-function add_variable!(::AbstractMOP)
+function add_variable!(::AbstractMOP, args...)
     @warn("The model does not support adding variables.")
     return nothing
 end
 
 for fn in [
-    :add_lower_bound!, 
+    :add_lower_bound!,
     :add_upper_bound!,
-    :del_lower_bound!,
-    :del_upper_bound!
+    :set_primal!
 ]
-    @eval function $(fn)(::AbstractMOP, vi :: VariableIndex, bound :: Real )
-        @warn("The model does not support adding bounds.")
+    @eval function $(fn)(::AbstractMOP, vi::VariableIndex, bound::Real)
+        @warn("The model does not support setting primals or adding bounds.")
+        return nothing
+    end
+end
+for fn in [
+    :del_lower_bound!,
+    :del_upper_bound!,
+    :del_primal!
+]
+    @eval function $(fn)(::AbstractMOP, vi::VariableIndex)
+        @warn("The model does not support un-setting primals or adding bounds.")
         return nothing
     end
 end
 
 function _add_function!(
-    mop :: AbstractMOP, 
-    index :: FunctionIndex, 
-    func :: Union{AbstractOuterEvaluator}
-) :: Bool
+    mop::AbstractMOP,
+    index::FunctionIndex,
+    func::Union{AbstractOuterEvaluator}
+)::Bool
     false
 end
 
-#=
-# The functions that are to be called by the user are derived below.
-# They do not use an underscore.
-"Add an objective function to the model."
-_add_objective!(::AbstractMOP{true}, ::ObjectiveIndex, ::AbstractOuterEvaluator) = nothing
+# Helper function `_new_index(mop, ind_type, name="")`
+# to get a new index of type `ind_type` for `mop`.
+function _new_index(mop, index_type, name) end
 
-"Add a nonlinear equality constraint function to the model."
-_add_nl_eq_constraint!(::AbstractMOP{true}, ::NLConstraintIndexEq, ::AbstractOuterEvaluator) = nothing
+function _next_int(value_indices)
+    isempty(value_indices) && return 1
+    return 1 + maximum(ind.value for ind in value_indices)
+end
 
-"Add a nonlinear inequality constraint function to the model."
-_add_nl_ineq_constraint!(::AbstractMOP{true}, ::NLConstraintIndexIneq, ::AbstractOuterEvaluator) = nothing
-
-"Add a linear equality constraint function to the model."
-_add_eq_constraint!(::AbstractMOP{true}, ::ConstraintIndexEq, ::MOI.VectorAffineFunction) = nothing
-"Add a linear inequality constraint function to the model."
-_add_ineq_constraint!(::AbstractMOP{true}, ::ConstraintIndexIneq, :: MOI.VectorAffineFunction) = nothing
-=#
-
-function new_index(mop, index_type, name) end
-_next_int( value_indices ) = 1 + isempty(value_indices) ? 0 : maximum( ind.value for ind in value_indices )
-for index_type in subtypes( FunctionIndex )
-    @eval function _new_index( mop :: AbstractMOP, ind_type :: Type{$(index_type)}, name::String="")
-        i = _next_int( _all_indices(mop, ind_type) )
-        return ind_type( i, name )
+for index_type in [subtypes(FunctionIndex); VariableIndex]
+    @eval function _new_index(mop::AbstractMOP, ind_type::Type{$(index_type)}, name::String="")
+        i = _next_int(_all_indices(mop, ind_type))
+        return ind_type(i, name)
     end
 end
 
 # not used anywhere yet
 # not implemented yet by `MOP<:AbstractMOP{true}`
 "Remove a function from the MOP."
-function _del!(::AbstractMOP, ind :: Union{VariableIndex, FunctionIndex} )
+function _del!(::AbstractMOP, ind::Union{VariableIndex,FunctionIndex})
     @warn "The model does not support deleting the object with $(ind)."
     return nothing
 end
 
 # DERIVED methods
 
-#=
-"Return a vector or tuple of all objective indices used in the model."
-_objective_indices( mop :: AbstractMOP ) = _all_indices( mop, ObjectiveIndex )
 
-# nonlinear constraints
-"Return the vector or tuple of the indices of nonlinear equality constraints used in the model."
-_nl_eq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, NLConstraintIndexEq )
-"Return the vector or tuple of the indices of nonlinear inequality constraints used in the model."
-_nl_ineq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, NLConstraintIndexIneq )
-
-# linear constraints (optional - either define these or 
-# `get_eq_matrix_and_vector` as well as `get_ineq_matrix_and_vector`)
-"Return the vector or tuple of the indices of *linear* equality constraints used in the model."
-_eq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, ConstraintIndexEq )
-"Return the vector or tuple of the indices of *linear* inequality constraints used in the model."
-_ineq_constraint_indices( mop :: AbstractMOP ) = _all_indices( mop, ConstraintIndexIneq )
-=#
-
-function _variables(mop :: AbstractMOP)
+function _variables(mop::AbstractMOP)
     vars = __variables(mop)
-    isnothing(vars) && return collect( __variable_indices(mop) )
+    isnothing(vars) && return collect(__variable_indices(mop))
     return vars
 end
-function _variable_indices(mop :: AbstractMOP)
+function _variable_indices(mop::AbstractMOP)
     vars = __variable_indices(mop)
-    isnothing(vars) && return Indices( __variables(mop) )
+    isnothing(vars) && return Indices(__variables(mop))
     return vars
 end
-_all_indices( mop :: AbstractMOP, :: Type{VariableIndex} ) = _variables(mop)
+_all_indices(mop::AbstractMOP, ::Type{VariableIndex}) = _variables(mop)
 
-function _lower_bounds( mop :: AbstractMOP, var_inds )
+function _has_primal_value(mop::AbstractMOP, vi::VariableIndex)
+    return !isnan(_primal_value(mop, vi))
+end
+function _has_primal_values(mop::AbstractMOP)
+    return all(_has_primal_value(mop, vi) for vi in _variables(mop))
+end
+function _primal_vector(mop::AbstractMOP)
+    return collect(_primal_value(mop, vi) for vi in _variables(mop))
+end
+
+function _lower_bounds(mop::AbstractMOP, var_inds)
     return _lower_bound.(mop, var_inds)
 end
 
-function _upper_bounds( mop :: AbstractMOP, var_inds )
+function _upper_bounds(mop::AbstractMOP, var_inds)
     return _upper_bound.(mop, var_inds)
 end
 
 "Return full vector of lower variable vectors for original problem."
-function _lower_bounds_vector( mop :: AbstractMOP )
-    return _lower_bounds( mop, _variable_indices(mop) )
+function _lower_bounds_vector(mop::AbstractMOP)
+    return _lower_bounds(mop, _variable_indices(mop))
 end
 
 "Return full vector of upper variable vectors for original problem."
-function _lower_bounds( mop :: AbstractMOP )
-    return get_upper_bounds( mop, _variable_indices(mop) )
+function _upper_bounds_vector(mop::AbstractMOP)
+    return _upper_bounds(mop, _variable_indices(mop))
 end
 
 # can be improved
-num_vars( mop :: AbstractMOP ) :: Int = length(_variable_indices(mop))
+num_vars(mop::AbstractMOP)::Int = length(_variable_indices(mop))
 
-function add_variables!(mop::AbstractMOP{true}, num_new :: Int )
-    return [add_variable!(mop) for _ = 1 : num_new]
+function add_variables!(mop::AbstractMOP{true}, num_new::Int)
+    return [add_variable!(mop) for _ = 1:num_new]
 end
 
-function _bounds_vectors( mop :: AbstractMOP )
-    (_lower_bounds_vector(mop), full_upper_bounds(mop))
+function _bounds_vectors(mop::AbstractMOP)
+    (_lower_bounds_vector(mop), _upper_bounds_vector(mop))
 end
 
-function _all_functions( mop :: AbstractMOP, index_type :: Type{<:FunctionIndex} )
-    return ( _get( mop, func_ind ) for func_ind = _all_indices(mop, index_type) )
+function _all_functions(mop::AbstractMOP, index_type::Type{<:FunctionIndex})
+    return (_get(mop, func_ind) for func_ind = _all_indices(mop, index_type))
 end
 
-function _all_functions( mop :: AbstractMOP )
-    return __all_functions(mop, FunctionIndex) 
+function _all_functions(mop::AbstractMOP)
+    return _all_functions(mop, FunctionIndex)
 end
-
-#=
-function list_of_objectives( mop :: AbstractMOP )
-    return [ _get( mop, func_ind ) for func_ind = _objective_indices(mop) ]
-end
-
-function list_of_nl_eq_constraints( mop :: AbstractMOP )
-    return [ _get( mop, func_ind ) for func_ind = _nl_eq_constraint_indices(mop) ]
-end
-
-function list_of_nl_ineq_constraints( mop :: AbstractMOP )
-    return [ _get( mop, func_ind ) for func_ind = _nl_ineq_constraint_indices(mop) ]
-end
-
-function list_of_functions( mop :: AbstractMOP )
-    return [ _get( mop, func_ind ) for func_ind = _function_indices(mop) ]
-end
-=#
-
-# defined below:
-num_objectives(mop) = nothing
-num_eq_constraints(mop) = nothing
-num_ineq_constraints(mop) = nothing
-num_nl_eq_constraints(mop) = nothing
-num_nl_ineq_constraints(mop) = nothing
-
-for func_type in [
-    :objective,
-    :eq_constraint,
-    :ineq_constraint,
-    :nl_eq_constraint,
-    :nl_ineq_constraint,
-]
-    fn = Symbol("num_$(func_type)s")
-    ind_fn = Symbol("_$(func_type)_indices")
-    @eval function $(fn)(mop :: AbstractMOP )
-        return sum(
-            num_outputs( _get(mop, ind) for ind in $(ind_fn)(mop) )
-        )
-    end
-end
-
-function num_nl_constraints( mop :: AbstractMOP )
-    num_nl_eq_constraints(mop) + num_nl_ineq_constraints(mop)
-end
-
-function num_lin_constraints( mop :: AbstractMOP )
-    num_eq_constraints(mop) + num_ineq_constraints(mop)
-end
-
-####### helpers for linear constraints
-#=
-function add_eq_constraint!( mop :: AbstractMOP{true}, aff_func :: MOI.ScalarAffineFunction )
-    return add_eq_econstraint!(mop, _scalar_to_vector_aff_func(aff_func) )
-end
-
-function add_ineq_constraint!( mop :: AbstractMOP{true}, aff_func :: MOI.ScalarAffineFunction )
-    return add_ineq_econstraint!(mop, _scalar_to_vector_aff_func(aff_func) )
-end
-
-"""
-    add_ineq_constraint!(mop, A, b = [])
-
-Add linear inequality constraints ``Ax ≤ b`` to the problem `mop`.
-If `b` is empty, then ``Ax ≤ 0`` is added.
-Returns a `ConstraintIndexIneq`.
-"""
-function add_ineq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector = [], vars :: Union{Nothing,AbstractVector{<:VariableIndex}} = nothing)
-	_vars = isnothing( vars ) ? _variable_indices(mop) : vars
-    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : -b
-	return _add_ineq_constraint!(mop, 
-		_matrix_to_vector_affine_function( A, _b; variables = _vars )
-	)
-end
-
-"""
-    add_eq_constraint!(mop, A, b = [])
-
-Add linear equality constraints ``Ax = b`` to the problem `mop`.
-If `b` is empty, then ``Ax = 0`` is added.
-Returns a `ConstraintIndexEq`.
-"""
-function add_eq_constraint!(mop :: AbstractMOP{true}, A :: AbstractMatrix, b :: AbstractVector, vars :: Union{Nothing,AbstractVector{<:VariableIndex}} = nothing)
-	_vars = isnothing( vars ) ? _variable_indices(mop) : vars
-    _b = isempty( b ) ? zeros( Bool, size(A,1) ) : -b
-	return _add_ineq_constraint!(mop, 
-		_matrix_to_vector_affine_function( A, _b; variables = _vars )
-	)
-end
-=#
 
 # pretty printing
-_is_editable(::Type{<:AbstractMOP{T}}) where T = T 
+_is_editable(::Type{<:AbstractMOP{T}}) where {T} = T
+_is_editable(::T) where {T<:AbstractMOP} = _is_editable(T)
 
-function Base.show(io::IO, mop :: M) where M<:AbstractMOP
-    str = "$( _is_editable(M) ? "Editable" : "Non-editable") MOP of Type $(_typename(M)). "
+function Base.show(io::IO, mop::T) where {T<:AbstractMOP}
+    str = if _is_editable(mop)
+        "Editable"
+    else
+        "Non-editable"
+    end
+    str *= " MOP of type `$(Base.typename(T).name)`."
     if !get(io, :compact, false)
-        str *= """There are 
-        * $(num_vars(mop)) variables and $(num_objectives(mop)) objectives,
-        * $(num_nl_eq_constraints(mop)) nonlinear equality and $(num_nl_ineq_constraints(mop)) nonlinear inequality constraints,
-        * $(num_eq_constraints(mop)) linear equality and $(num_ineq_constraints(mop)) linear inequality constraints.
-        The lower bounds and upper variable bounds are 
-        $(_prettify(_lower_bounds_vector(mop), 5))
-        $(_prettify(full_upper_bounds(mop), 5))"""
+        str *= """ There are 
+       * $(num_vars(mop)) variables and $(dim_objectives(mop)) objective outputs,
+       * $(dim_nl_eq_constraints(mop)) nonlinear equality and $(dim_nl_ineq_constraints(mop)) nonlinear inequality constraints,
+       * $(dim_eq_constraints(mop)) linear equality and $(dim_ineq_constraints(mop)) linear inequality constraints.
+       The lower bounds and upper variable bounds are 
+       $(_prettify(_lower_bounds_vector(mop); digits = 4))
+       $(_prettify(_upper_bounds_vector(mop); digits = 4))
+        """
     end
     print(io, str)
 end
 
 #### utilities
 
-function check_variable_bounds(mop :: AbstractMOP, xd :: AbstractDictionary{ScalarIndex,<:Real} )
+function check_variable_bounds(mop::AbstractMOP, xd::AbstractDictionary{<:ScalarIndex,<:Real})
     var_inds = _variable_indices(mop)
-    for (vi,xi) in pairs(getindices(xd,var_inds))
-        if _lower_bound(mop, vi) > xi || _upper_bound(mop, vi) < xi 
+    for (vi, xi) in pairs(getindices(xd, var_inds))
+        if _lower_bound(mop, vi) > xi || _upper_bound(mop, vi) < xi
             return false
         end
     end
-    return true 
+    return true
 end
 
-function project_into_bounds!(xd :: AbstractDictionary{ScalarIndex,<:Real}, mop :: AbstractMOP ) 
+function project_into_bounds!(xd::AbstractDictionary{<:ScalarIndex,<:Real}, mop::AbstractMOP)
     var_inds = _variable_indices(mop)
     for (vi, xi) in pairs(getindices(xd, var_inds))
-        set!(x, vi, 
-            min( 
-                _upper_bound( mop, vi), 
-                max( 
+        set!(xd, vi,
+            min(
+                _upper_bound(mop, vi),
+                max(
                     _lower_bound(mop, vi),
                     xi
-                ) 
+                )
             )
         )
     end
@@ -302,13 +213,46 @@ end
 # Evaluation
 
 function eval_at_unscaled_dict(
-    mop :: AbstractMOP, xd :: AbstractDictionary{<:ScalarIndex,F}
-) where F
-    _xd = convert( Dictionary{ScalarIndex, F}, xd )
+    mop::AbstractMOP, xd::AbstractDictionary{<:ScalarIndex,F}
+) where {F}
+    _xd = Dictionary{SCALAR_INDEX,F}(
+        copy(keys(xd)), # `copy` is important, else `xd` might have too many values after evaluation
+        values(xd)
+    )
+
     for func_ind in _all_indices(mop, FunctionIndex)
         eval_at_dict!(_get(mop, func_ind), _xd)
     end
     return _xd
+end
+
+function extract_vector(
+    x0::AbstractDictionary{<:ScalarIndex,F},
+    indices,
+) where {F}
+    return collect(F, getindices(x0, indices))
+end
+
+function extract_vector(
+    mop::AbstractMOP,
+    x0::AbstractDictionary,
+    ind_type::Type{<:VariableIndex}
+)
+    return extract_vector(x0, _all_indices(mop, ind_type))
+end
+
+function extract_vector(
+    mop::AbstractMOP,
+    x0::AbstractDictionary,
+    ind_type::Type{<:FunctionIndex}
+)
+    return extract_vector(
+        x0,
+        reduce(
+            union,
+            output_indices.(_all_functions(mop, ind_type));
+        )
+    )
 end
 
 #=======================================================================
@@ -322,14 +266,55 @@ const MOP_FIELDNAME_DICT_SG = Dict(
     NLConstraintIndexEq => :nl_eq_constraint,
     NLConstraintIndexIneq => :nl_ineq_constraint,
 )
-_plural( symb ) = Symbol( symb, :s )
-const MOP_FIELDNAME_DICT = Dict( k => _plural(v) for (k,v) in pairs(MOP_FIELDNAME_DICT_SG) )
+_plural(symb) = Symbol(symb, :s)
+const MOP_FIELDNAME_DICT = Dict(k => _plural(v) for (k, v) in pairs(MOP_FIELDNAME_DICT_SG))
 
-@with_kw struct SimpleMOP <: AbstractMOP{true}
-    variables :: Vector{VariableIndex}
-    
-    lower_bounds_dict = FillDictionary( variables, -Inf )
-    upper_bounds_dict = FillDictionary( variables, Inf )
+const MOP_FIELDNAME_NOUN_DICT = Dict(
+    VariableIndex => "variable",
+    ObjectiveIndex => "objective function",
+    ConstraintIndexEq => "linear equality constraint function",
+    ConstraintIndexIneq => "linear inequality constraint function",
+    NLConstraintIndexEq => "nonlinear equality constraint function",
+    NLConstraintIndexIneq => "nonlinear inequality constraint function",
+)
+_plural(s::String) = s * "s"
+
+# defined in for-loop below:
+dim_objectives(mop) = nothing
+dim_eq_constraints(mop) = nothing
+dim_ineq_constraints(mop) = nothing
+dim_nl_eq_constraints(mop) = nothing
+dim_nl_ineq_constraints(mop) = nothing
+for (ind_type, fn) in pairs(MOP_FIELDNAME_DICT)
+    if ind_type != VariableIndex
+        fn = Symbol("dim_$(fn)")
+        @eval begin
+            @doc "Dimension of the concatenated output vector of $($(_plural(MOP_FIELDNAME_NOUN_DICT[ind_type])))."
+            function $(fn)(mop::AbstractMOP)
+                ind = _all_indices(mop, $ind_type)
+                isempty(ind) && return 0
+                return sum(
+                    num_outputs(_get(mop, ind)) for ind in _all_indices(mop, $ind_type)
+                )
+            end
+        end
+    end
+end
+
+function dim_nl_constraints(mop::AbstractMOP)
+    return dim_nl_eq_constraints(mop) + dim_nl_ineq_constraints(mop)
+end
+
+function num_lin_constraints(mop::AbstractMOP)
+    return dim_eq_constraints(mop) + dim_ineq_constraints(mop)
+end
+
+Base.@kwdef struct SimpleMOP <: AbstractMOP{true}
+    variables::Vector{VariableIndex} = []
+
+    primal_values::Dictionary{VariableIndex,Float64} = Dictionary()
+    lower_bounds::Dictionary{VariableIndex,Float64} = Dictionary()
+    upper_bounds::Dictionary{VariableIndex,Float64} = Dictionary()
 
     objectives = Dictionary{ObjectiveIndex,AbstractOuterEvaluator}()
     nl_eq_constraints = Dictionary{NLConstraintIndexEq,AbstractOuterEvaluator}()
@@ -338,18 +323,103 @@ const MOP_FIELDNAME_DICT = Dict( k => _plural(v) for (k,v) in pairs(MOP_FIELDNAM
     ineq_constraints = Dictionary{ConstraintIndexIneq,AbstractOuterEvaluator}()
 end
 
-for (ind_type, field_name) in pairs( MOP_FIELDNAME_DICT )
-    @eval function _add_function!(
-            mop :: SimpleMOP, ind :: $(ind_type), aoe :: AbstractOuterEvaluator
-        )
-        insert!( getfield( mop, $(Meta.quot(field_name))), ind, aoe )
-        return nothing
+__variable_indices(mop::SimpleMOP) = keys(mop.lower_bounds)
+__variables(mop::SimpleMOP) = mop.variables
+_lower_bound(mop::SimpleMOP, vi::VariableIndex) = getindex(mop.lower_bounds, vi)
+_lower_bounds(mop::SimpleMOP, var_inds) = collect(getindices(mop.lower_bounds, var_inds))
+_upper_bound(mop::SimpleMOP, vi::VariableIndex) = getindex(mop.upper_bounds, vi)
+_upper_bounds(mop::SimpleMOP, var_inds) = collect(getindices(mop.upper_bounds, var_inds))
+_primal_value(mop::SimpleMOP, vi::VariableIndex) = getindex(mop.primal_values, vi)
+
+function add_lower_bound!(mop::SimpleMOP, vi::VariableIndex, bound::Real)
+    set!(mop.lower_bounds, vi, bound)
+end
+function add_upper_bound!(mop::SimpleMOP, vi::VariableIndex, bound::Real)
+    set!(mop.upper_bounds, vi, bound)
+end
+function del_lower_bound!(mop::SimpleMOP, vi::VariableIndex)
+    set!(mop.lower_bounds, vi, -Inf)
+end
+function del_upper_bound!(mop::SimpleMOP, vi::VariableIndex)
+    set!(mop.upper_bounds, vi, Inf)
+end
+
+function set_primal!(mop::SimpleMOP, vi::VariableIndex, bound::Real)
+    set!(mop.primal_values, vi, bound)
+end
+function del_primal!(mop::SimpleMOP, vi::VariableIndex)
+    set!(mop.primal_values, vi, NaN)
+end
+
+function _del!(mop::SimpleMOP, vi::VariableIndex)
+    isempty(mop.variables) && return nothing
+    i = findfirst(isequal(vi), mop.variables)
+    if !isnothing(vi)
+        deleteat!(mop.variables, i)
+        delete!(mop.lower_bounds, vi)
+        delete!(mop.upper_bounds, vi)
+        delete!(mop.primal_values, vi)
+    end
+    return nothing
+end
+
+for (ind_type, fn) in pairs(MOP_FIELDNAME_DICT)
+    @eval begin
+        function _all_indices(mop::SimpleMOP, ind_type::$(ind_type))
+            return keys(getfield(mop, $(Meta.quot(fn))))
+        end
+    end
+end
+
+function add_variable!(mop::SimpleMOP;
+    lb::Real=-Inf, ub::Real=Inf, name::String=""
+)
+    new_ind = _new_index(mop, VariableIndex, name)
+    push!(mop.variables, new_ind)
+    set!(mop.lower_bounds, new_ind, lb)
+    set!(mop.upper_bounds, new_ind, ub)
+    set!(mop.primal_values, new_ind, NaN)
+    return new_ind
+end
+
+function add_variable!(mop::SimpleMOP, vi::VariableIndex; lb=-Inf, ub=Inf)
+    if !(vi in mop.variables)
+        push!(mop.variables, vi)
+        set!(mop.lower_bounds, vi, lb)
+        set!(mop.upper_bounds, vi, ub)
+    end
+    return nothing
+end
+
+# `add_function(mop, ind, aoe)` and
+# `_get(mop, ind)` for all function index types
+for (ind_type, field_name) in pairs(MOP_FIELDNAME_DICT)
+    if ind_type != VariableIndex
+        @eval begin
+            function _all_indices(mop::SimpleMOP, ::Type{<:$(ind_type)})
+                return keys(getfield(mop, $(Meta.quot(field_name))))
+            end
+
+            function _add_function!(
+                mop::SimpleMOP, ind::$(ind_type), aoe::AbstractOuterEvaluator
+            )
+                insert!(getfield(mop, $(Meta.quot(field_name))), ind, aoe)
+                return nothing
+            end
+            function _get(mop::SimpleMOP, ind::$(ind_type))
+                return getindex(getfield(mop, $(Meta.quot(field_name))), ind)
+            end
+            function _del!(mop::SimpleMOP, ind::$(ind_type))
+                delete!(getfield(mop, $(Meta.quot(field_name))), ind)
+                return nothing
+            end
+        end
     end
 end
 
 # syntactic sugar:
 
-function _get_differentiator(model_cfg, gradients, jacobian, hessians, ad_backend, ad_backend_2 )
+function _get_differentiator(model_cfg, gradients, jacobian, hessians, ad_backend, ad_backend2)
     if !needs_gradients(model_cfg) && !needs_hessians(model_cfg)
         return nothing
     end
@@ -365,9 +435,11 @@ function _get_differentiator(model_cfg, gradients, jacobian, hessians, ad_backen
     end
 
     return FuncContainerBackend(;
-        gradients, jacobian, hessians, fallback = ad_backend, fallback2 = ad_backend2
+        gradients, jacobian, hessians, fallback=ad_backend, fallback2=ad_backend2
     )
 end
+
+
 #=
 for (func_type, ind_type) in [
     (:objective, ObjectiveIndex),

@@ -58,4 +58,10 @@ include("iter_data.jl")
 
 include("mop.jl")
 
+include("utilities.jl")
+
+include("algo_config.jl")
+
+include("algorithm.jl")
+
 end # module
