@@ -19,6 +19,9 @@ _upper_bound(::AbstractMOP, ::VariableIndex)::Real = nothing
 
 # optional:
 _primal_value(::AbstractMOP, ::VariableIndex)::Real = MIN_PRECISION(NaN)
+function _primal_value(::AbstractMOP, ::FunctionIndex)::Union{Real,AbstractVector{<:Real}}
+    return MIN_PRECISION(NaN)
+end
 
 # implement for all supported index types:
 """
@@ -32,8 +35,9 @@ function _all_indices(mop::AbstractMOP, T::Type{FunctionIndex})
     return Iterators.flatten(_all_indices(mop, F) for F in subtypes(T))
 end
 
-# for objectives and nl_constraints (and linear constraints if the "getter"s are defined)
-_get(::AbstractMOP, ::FunctionIndex)::AbstractOuterEvaluator = nothing
+function _get(::AbstractMOP, ::FunctionIndex)::Union{Nothing,AbstractOuterEvaluator}
+    return nothing
+end
 
 # Methods for editable models:
 # Implement for `mop::AbstractMOP{true}`
@@ -72,6 +76,80 @@ function _add_function!(
     false
 end
 
+function set_primal_at_index!(::AbstractMOP, ::DependentIndex, ::Real)
+    @warn("The model dos not support setting primal values for stored functions.")
+    return nothing
+end
+function del_primal_at_index!(::AbstractMOP, ::DependentIndex)
+    @warn("The model dos not support setting primal values for stored functions.")
+    return nothing
+end
+
+# (helper)
+function _get_func_and_inds_or_error(mop, ind)
+    if !_contains(mop, ind)
+        error("The problem `mop` has no function with index $(ind).")
+    end
+    func = _get(mop, ind)
+    dep_inds = output_indices(func)
+    return func, dep_inds
+end
+
+function set_primal!(mop::AbstractMOP, ind::FunctionIndex, value::Real)
+    _, dep_inds = _get_func_and_inds_or_error(mop, ind)
+    if length(dep_inds) > 1
+        error("Trying to set a single value for a multi-dimensional function. Use `set_primals!` instead.")
+    end
+    set_primal_at_index!(mop, first(dep_inds), value)
+    return nothing
+end
+
+function set_primals!(
+    mop::AbstractMOP,
+    ind::FunctionIndex,
+    values::AbstractVector{<:Real}
+)
+    _, dep_inds = _get_func_and_inds_or_error(mop, ind)
+    if length(dep_inds) != length(values)
+        error("Number of supplied values does not match output dimension of $(ind).")
+    end
+    set_primal_at_index!.(mop, ind, values)
+    return nothing
+end
+
+function set_primals!(
+    mop::AbstractMOP,
+    ind::FunctionIndex,
+    val_dict::AbstractDictionary{DependentIndex,<:Real}
+)
+    _, dep_inds = _get_func_and_inds_or_error(mop, ind)
+    if !issubset(dep_inds, keys(val_dict))
+        error("Not all output_indices for $(ind) present in keys of `val_dict`.")
+    end
+    for di in dep_inds
+        set_primal_at_index!.(mop, di, getindex(val_dict, di))
+    end
+    return nothing
+end
+
+function del_primals!(mop::AbstractMOP, ind::FunctionIndex)
+    _, dep_inds = _get_func_and_inds_or_error(mop, ind)
+    for di in dep_inds
+        del_primal_at_index!(mop, di)
+    end
+    return nothing
+end
+function del_primal!(mop::AbstractMOP, ind::FunctionIndex)
+    return del_primals!(mop, ind)
+end
+
+function del_primal!(mop::AbstractMOP, ind::DependentIndex)
+    return del_primal_at_index!(mop, ind)
+end
+function del_primals!(mop::AbstractMOP, ind::DependentIndex)
+    return del_primal_at_index!(mop, ind)
+end
+
 # Helper function `_new_index(mop, ind_type, name="")`
 # to get a new index of type `ind_type` for `mop`.
 function _new_index(mop, index_type, name) end
@@ -98,7 +176,6 @@ end
 
 # DERIVED methods
 
-
 function _variables(mop::AbstractMOP)
     vars = __variables(mop)
     isnothing(vars) && return collect(__variable_indices(mop))
@@ -114,11 +191,35 @@ _all_indices(mop::AbstractMOP, ::Type{VariableIndex}) = _variables(mop)
 function _has_primal_value(mop::AbstractMOP, vi::VariableIndex)
     return !isnan(_primal_value(mop, vi))
 end
-function _has_primal_values(mop::AbstractMOP)
+function _has_primal_value(mop::AbstractMOP, fi::FunctionIndex)
+    return !isnan(_primal_value(mop, fi))
+end
+function _has_primal_variable_values(mop::AbstractMOP)
     return all(_has_primal_value(mop, vi) for vi in _variables(mop))
 end
-function _primal_vector(mop::AbstractMOP)
+function _has_primal_evaluation_values(mop::AbstractMOP)
+    return all(_has_primal_value(mop, fi) for fi in _all_indices(mop, FunctionIndex))
+end
+function _primal_variable_vector(mop::AbstractMOP)
     return collect(_primal_value(mop, vi) for vi in _variables(mop))
+end
+function _primal_evaluation_vector(mop::AbstractMOP)
+    return collect(_primal_value(mop, fi) for fi in _all_indices(mop, FunctionIndex))
+end
+
+function _primal_values(mop::AbstractMOP, ind::FunctionIndex)
+    func, dep_inds = _get_func_and_inds_or_error(mop, ind)
+    return dictionary(di => _primal_value(mop,di) for di in dep_inds )
+end
+
+# might be improved by implementations
+function _contains(mop::AbstractMOP, ind::FunctionIndex)
+    return !isnothing(_get(mop, ind))
+end
+
+# might be improved by implementations
+function _contains(mop::AbstractMOP, ind::VariableIndex)
+    return haskey(_variable_indices(mop), ind)
 end
 
 function _lower_bounds(mop::AbstractMOP, var_inds)
@@ -212,18 +313,14 @@ end
 
 # Evaluation
 
-function eval_at_unscaled_dict(
-    mop::AbstractMOP, xd::AbstractDictionary{<:ScalarIndex,F}
+function eval_at_dict!(
+    mop::AbstractMOP, xd::AbstractDictionary{>:SCALAR_INDEX,F}
 ) where {F}
-    _xd = Dictionary{SCALAR_INDEX,F}(
-        copy(keys(xd)), # `copy` is important, else `xd` might have too many values after evaluation
-        values(xd)
-    )
 
     for func_ind in _all_indices(mop, FunctionIndex)
-        eval_at_dict!(_get(mop, func_ind), _xd)
+        eval_at_dict!(_get(mop, func_ind), xd)
     end
-    return _xd
+    return xd
 end
 
 function extract_vector(
@@ -246,12 +343,12 @@ function extract_vector(
     x0::AbstractDictionary,
     ind_type::Type{<:FunctionIndex}
 )
-    return extract_vector(
-        x0,
-        reduce(
-            union,
-            output_indices.(_all_functions(mop, ind_type));
-        )
+    return reduce(
+        vcat,
+        extract_vector(
+             x0,
+             output_indices(func)
+        ) for func in _all_functions(mop, ind_type)
     )
 end
 
@@ -321,6 +418,8 @@ Base.@kwdef struct SimpleMOP <: AbstractMOP{true}
     nl_ineq_constraints = Dictionary{NLConstraintIndexIneq,AbstractOuterEvaluator}()
     eq_constraints = Dictionary{ConstraintIndexEq,AbstractOuterEvaluator}()
     ineq_constraints = Dictionary{ConstraintIndexIneq,AbstractOuterEvaluator}()
+
+    primal_evals::Dictionary{DependentIndex,Float64} = Dictionary()
 end
 
 __variable_indices(mop::SimpleMOP) = keys(mop.lower_bounds)
@@ -330,6 +429,7 @@ _lower_bounds(mop::SimpleMOP, var_inds) = collect(getindices(mop.lower_bounds, v
 _upper_bound(mop::SimpleMOP, vi::VariableIndex) = getindex(mop.upper_bounds, vi)
 _upper_bounds(mop::SimpleMOP, var_inds) = collect(getindices(mop.upper_bounds, var_inds))
 _primal_value(mop::SimpleMOP, vi::VariableIndex) = getindex(mop.primal_values, vi)
+_primal_value(mop::SimpleMOP, vi::DependentIndex) = getindex(mop.primal_evals, vi)
 
 function add_lower_bound!(mop::SimpleMOP, vi::VariableIndex, bound::Real)
     set!(mop.lower_bounds, vi, bound)
@@ -349,6 +449,16 @@ function set_primal!(mop::SimpleMOP, vi::VariableIndex, bound::Real)
 end
 function del_primal!(mop::SimpleMOP, vi::VariableIndex)
     set!(mop.primal_values, vi, NaN)
+end
+
+function del_primal_at_index!(mop::SimpleMOP, di::DependentIndex)
+    delete!(mop.primal_evals, di)
+    return nothing
+end
+
+function set_primal_at_index!(mop::SimpleMOP, di::DependentIndex, val::Real)
+    set!(mop.primal_evals, di, val)
+    return nothing
 end
 
 function _del!(mop::SimpleMOP, vi::VariableIndex)
@@ -392,7 +502,10 @@ function add_variable!(mop::SimpleMOP, vi::VariableIndex; lb=-Inf, ub=Inf)
 end
 
 # `add_function(mop, ind, aoe)` and
-# `_get(mop, ind)` for all function index types
+# `_get(mop, ind)`
+# `set_primal!`
+# `del_primal!`
+# for all function index types
 for (ind_type, field_name) in pairs(MOP_FIELDNAME_DICT)
     if ind_type != VariableIndex
         @eval begin
@@ -413,6 +526,7 @@ for (ind_type, field_name) in pairs(MOP_FIELDNAME_DICT)
                 delete!(getfield(mop, $(Meta.quot(field_name))), ind)
                 return nothing
             end
+
         end
     end
 end

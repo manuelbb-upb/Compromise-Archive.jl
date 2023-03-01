@@ -20,44 +20,44 @@ for all indices `i` that `σ[i]` is the value for which
 		   points "away" from the boundary, then `σ[i] == typemax(eltype(x))`, 
 		   else `σ[i] = 0`.
 """
-function _intersect_bound_vec( 
-    x :: AbstractVector{X}, 
-	b :: AbstractVector{B}, 
-	dir :: AbstractVector{D}, 
-	dir_nz = .!(iszero.(dir));
+function _intersect_bound_vec(
+    x :: AbstractVector{X},
+	  b :: AbstractVector{B},
+	  dir :: AbstractVector{D},
+	  dir_nz = .!(iszero.(dir));
     sense = :lb
 ) where {X,B,D}
-    
-	F = Base.promote_type(X,B,D)
+
+	  F = Base.promote_type(X,B,D)
 
     finf = typemax(F)
-	σ = fill( finf, length(x) )
+	  σ = fill( finf, length(x) )
 
     isempty( b ) && return finf
 
     _d = dir[dir_nz]
-	_σ = view(σ, dir_nz)
+	  _σ = view(σ, dir_nz)
 
-	# first: treat rows where we can move
-	# in a positive direction along `dir`
+	  # first: treat rows where we can move
+	  # in a positive direction along `dir`
     tmp = b[dir_nz] .- x[dir_nz]
     tmp_z = iszero.(tmp)
     tmp_nz = .!(tmp_z)
     _σ[tmp_nz] .= tmp[tmp_nz] ./ _d[tmp_nz]
-    
-	__d = _d[tmp_z]
-    isempty( __d ) && return σ
-	__σ = view( _σ, tmp_z )
 
-	# second: if there are rows where 
-	# `x` touches the boundary we can move
-	# infintely (if direction points to interior) 
-	# or not at all
+	  __d = _d[tmp_z]
+    isempty( __d ) && return σ
+	  __σ = view( _σ, tmp_z )
+
+	  # second: if there are rows where 
+	  # `x` touches the boundary we can move
+	  # infintely (if direction points to interior) 
+	  # or not at all
     fzero = F(0)
-	zero_ind = sense == :lb ? __d .< 0 : __d .> 0
+	  zero_ind = sense == :lb ? __d .< 0 : __d .> 0
     __σ[ zero_ind ] .= fzero 
 
-	return σ
+	  return σ
 end
 
 """

@@ -6,6 +6,7 @@ version = "0.0.1-DEV"
 [deps]
 AbstractDifferentiation = "c29ec348-61ec-40c8-8164-b8c60e9d9f3d"
 Dictionaries = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
+ExportAll = "ad2082ca-a69e-11e9-38fa-e96309a31fe4"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 Lazy = "50d2b5c4-7a5e-59d5-8109-a42b560f39c0"

@@ -1,12 +1,12 @@
 const Vec = AbstractVector{<:Real}
 const VecVec = AbstractVector{<:AbstractVector}
-const NumOrVec = Union{Real, Vec}
-const VecOrNum = NumOrVec 
+const NumOrVec = Union{Real,Vec}
+const VecOrNum = NumOrVec
 const Mat = AbstractMatrix{<:Real}
 
 const VecF = AbstractVector{<:AbstractFloat}
 const MatF = AbstractMatrix{<:AbstractFloat}
-const NumOrVecF = Union{AbstractFloat, VecF}
+const NumOrVecF = Union{AbstractFloat,VecF}
 
 const MIN_PRECISION = Float32
 const INF = MIN_PRECISION(Inf)
@@ -67,10 +67,11 @@ const NLOPT_FAIL_CODES = [
 abstract type AbstractOuterEvaluator{is_atomic} end
 abstract type DiffFn end
 abstract type AbstractInnerEvaluator end
-abstract type AbstractSurrogateConfig end 
 abstract type AbstractAffineScaler end
 abstract type AbstractMOP{is_editable} end
 
 abstract type AbstractConfig end
-
 abstract type AbstractDescentConfig end
+
+include("_database.jl")
+include("_surrogate_interface.jl")

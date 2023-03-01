@@ -95,3 +95,4 @@ end
 
 const FUNCTION_INDEX = Union{concrete_subtypes(FunctionIndex)...}
 const SCALAR_INDEX = Union{concrete_subtypes(ScalarIndex)...}
+const ANY_VAR_INDEX = Union{VariableIndex, ScaledVariableIndex}

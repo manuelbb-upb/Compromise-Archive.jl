@@ -30,8 +30,8 @@ _array_type(T::Type{<:AbstractVector}, F) = _vec_type(T, F)
 _array_type(T::Type{<:AbstractMatrix}, F) = _mat_type(T, F)
 _array_type(x::T, F) where {T} = _array_type(T, F)
 
-function site_vec_to_dict(mop::AbstractMOP, x::Vec)
-    return Dictionary(_variable_indices(mop), x)
+function site_vec_to_dict(mop::AbstractMOP, x::AbstractVector{F}) where F
+    return Dictionary{SCALAR_INDEX, F}(copy(_variable_indices(mop)), x)
 end
 
 function sparse_or_static(_A::AbstractArray{T}, F::Type{<:Number}) where {T}
@@ -49,3 +49,4 @@ function sparse_or_static(_A::AbstractArray{T}, F::Type{<:Number}) where {T}
     end
     return A
 end
+

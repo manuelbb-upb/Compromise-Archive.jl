@@ -2,12 +2,13 @@
 #=======================================================================
 Iterate
 ========================================================================#
+#=
 Base.@kwdef struct Iterate{F<:Real, VT <: AbstractVector{F}}
 	  unscaled_vector :: VT
 	  scaled_vector :: VT
 
 	  unscaled_dict :: Dictionary{VariableIndex, F}
-	  scaled_dict :: Dictionary{VariableIndex, F}
+	  scaled_dict :: Dictionary{ScaledVariableIndex, F}
 end
 
 iter_site_vector(iterate :: Iterate) = iterate.unscaled_vector
@@ -16,18 +17,19 @@ iter_site_dict(iterate :: Iterate) = iterate.unscaled_dict
 scaled_iter_site_dict(iterate :: Iterate) = iterate.scaled_dict
 
 _precision( :: Iterate{F,VT} ) where{F,VT} = F
-
+=#
 #=======================================================================
 IterData
 ========================================================================#
+#=
 Base.@kwdef struct IterData{
 	  F <: Real,
 	  VT <: AbstractVector{F}
 }
 	  iterate :: Iterate{F,VT}
 
-    evaluation_cache :: Dictionary{FUNCTION_INDEX, F}
-    jacobian_cache :: Dictionary{DependentIndex, Dictionary{VariableIndex, F}}
+    evaluation_cache :: Dictionary{DependentIndex, F}
+    jacobian_cache :: Dictionary{DependentIndex, Dictionary{ScaledVariableIndex, F}}
 
 	  radius :: F
 
@@ -45,3 +47,4 @@ _precision( :: IterData{F,VT} ) where{F,VT} = F
 Base.broadcastable( id :: IterData ) = Ref( id )
 
 @forward IterData.iterate iter_site_vector, scaled_iter_site_dict, iter_site_dict, scaled_iter_site_vector
+=#

@@ -315,26 +315,47 @@ function num_inputs(ov::AbstractOuterEvaluator{false})
     return sum(num_inputs(ov, i) for i = 1:num_input_sets(ov))
 end
 
-function outer_evaluator_or_model(ov, models)
-    haskey(models, ov) && return models[ov]
-    return ov
+#=@forward_pipe(
+    AbstractOuterEvaluator{true},
+    inner_transformer,
+    (
+        provides_gradients,
+        provides_jacobian,
+        #        provides_hessians,
+        #        gradient,
+        #        jacobian,
+        #        hessian,
+    )
+)
+=#
+
+function inner_transformer_or_model(aoe::AbstractOuterEvaluator, ::Nothing)
+    return inner_transformer(aoe)
+end
+function inner_transformer_or_model(aoe::AbstractOuterEvaluator, models::IdDict)
+    iv = inner_transformer(aoe)
+    if haskey(models, iv)
+        return models[iv]
+    else
+        return iv
+    end
 end
 
 function provides_jacobian(ov::AbstractOuterEvaluator{true}; models=nothing)
-    return provides_jacobian(inner_transformer(outer_evaluator_or_model(ov, models)))
+    return provides_jacobian(inner_transformer_or_model(ov, models))
 end
 function provides_gradients(ov::AbstractOuterEvaluator{true}; models=nothing)
-    return provides_gradients(inner_transformer(outer_evaluator_or_model(ov, models)))
+    return provides_gradients(inner_transformer_or_model(ov, models))
 end
 
 function provides_jacobian(ov::AbstractOuterEvaluator{false}; models=nothing)
-    return provides_jacobian(inner_transformer(outer_evaluator_or_model(ov, models)) &&
-           all(provides_jacobian(input_provider(ov, l); models) for l = 1:num_input_sets(ov)))
+    return provides_jacobian(inner_transformer_or_model(ov, models)) &&
+           all(provides_jacobian(input_provider(ov, l); models) for l = 1:num_input_sets(ov))
 end
 
 function provides_gradients(ov::AbstractOuterEvaluator{false}; models=nothing)
-    return provides_gradients(inner_transformer(outer_evaluator_or_model(ov, models)) &&
-           all(provides_gradients(input_provider(ov, l); models) for l = 1:num_input_sets(ov)))
+    return provides_gradients(inner_transformer_or_model(ov, models)) &&
+           all(provides_gradients(input_provider(ov, l); models) for l = 1:num_input_sets(ov))
 end
 
 # (helper)
@@ -346,7 +367,7 @@ end
 function _transform_input_vector(ov, x; models=nothing)
     return Dictionary(
         output_indices(ov),
-        eval_at_vec(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+        eval_at_vec(inner_transformer_or_model(ov, models), x)
     )
 end
 
@@ -579,7 +600,7 @@ Dictionary mapping to the primal values.
 """
 function _jacobian_and_primal(ov, xd; models=nothing)
     x = _collect_input_vector(ov, xd)
-    J, y = jacobian_and_primal(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+    J, y = jacobian_and_primal(inner_transformer_or_model(ov, models), x)
     in_ind = input_indices(ov)
     out_ind = output_indices(ov)
     return (
@@ -610,10 +631,10 @@ function _jacobian_and_primal!(ov, xd; models=nothing)
     out_ind = output_indices(ov)
     x = _collect_input_vector(ov, xd)
     if !all(haskey(xd, k) for k = out_ind)
-        J, y = jacobian_and_primal(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+        J, y = jacobian_and_primal(inner_transformer_or_model(ov, models), x)
         merge!(xd, Dictionary(out_ind, y))
     else
-        J = jacobian(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+        J = jacobian(inner_transformer_or_model(ov, models), x)
     end
 
     in_ind = input_indices(ov)
@@ -631,7 +652,7 @@ end
 
 function _transposed_jacobian_and_primal(ov, xd; models=nothing)
     x = _collect_input_vector(ov, xd)
-    J, y = jacobian_and_primal(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+    J, y = jacobian_and_primal(inner_transformer_or_model(ov, models), x)
     in_ind = input_indices(ov)
     out_ind = output_indices(ov)
     return (
@@ -654,10 +675,10 @@ function _transposed_jacobian_and_primal!(ov, xd; models=nothing)
     out_ind = output_indices(ov)
     x = _collect_input_vector(ov, xd)
     if !all(haskey(xd, k) for k = out_ind)
-        J, y = jacobian_and_primal(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+        J, y = jacobian_and_primal(inner_transformer_or_model(ov, models), x)
         merge!(xd, Dictionary(out_ind, y))
     else
-        J = jacobian(inner_transformer(outer_evaluator_or_model(ov, models)), x)
+        J = jacobian(inner_transformer_or_model(ov, models), x)
     end
 
     in_ind = input_indices(ov)

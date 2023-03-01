@@ -40,21 +40,21 @@ using MacroTools: isexpr
 # mop.jl
 using InteractiveUtils: subtypes
 
+include("indices.jl")
 include("constants.jl")
 
-include("indices.jl")
-
-include("surrogate_interface.jl")
-struct DummySurrogateConfig <: AbstractSurrogateConfig end 
+struct DummySurrogateConfig <: AbstractSurrogateConfig end
 const DUMMY_CONFIG = DummySurrogateConfig()
 
 include("evaluators.jl")
 
-include("var_scalers.jl")
+include("scaling.jl")
+
+include("models.jl")
 
 include("linear_constraints.jl")
 
-include("iter_data.jl")
+# include("iter_data.jl")
 
 include("mop.jl")
 
@@ -64,4 +64,6 @@ include("algo_config.jl")
 
 include("algorithm.jl")
 
+using ExportAll
+@exportAll
 end # module

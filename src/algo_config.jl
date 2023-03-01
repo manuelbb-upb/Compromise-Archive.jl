@@ -31,14 +31,18 @@ use_db( :: AbstractConfig ) :: Bool = true
 delta_0(::AbstractConfig) = 0.1f0
 
 # radius upper bound(s)
-#delta_max(::AbstractConfig) = 0.5f0
+delta_max(::AbstractConfig) = 0.5f0
 
 # STOPPING 
 # restrict number of evaluations and iterations
 max_evals( :: AbstractConfig ) :: Int = typemax(Int)
 max_iter( :: AbstractConfig ) :: Int = 50
 
-var_scaler( :: AbstractConfig ) :: Union{AbstractAffineScaler,Nothing} = nothing
+var_scaler( :: AbstractConfig ) :: Union{VariableTransformation,Nothing} = nothing
+combine_models_by_type(::AbstractConfig) = false
+
+config_precision( :: AbstractConfig ) = MIN_PRECISION
+
 #=
 # relative stopping 
 # stop if ||Δf|| ≤ ε ||f|| (or |Δf_ℓ| .≤ ε |f_ℓ| )
@@ -109,7 +113,7 @@ save_no_model_meta_data( :: AbstractConfig ) = true
 AlgorithmConfig
 =================================================================================#
 @with_kw struct AlgorithmConfig{F <: AbstractFloat }
-	T :: Type{F} = Float64
+	T :: Type{F} = config_precision( DEFAULT_CONFIG )
 
 	max_iter :: Int = max_iter( DEFAULT_CONFIG )
 	max_evals :: Int = max_evals( DEFAULT_CONFIG )
@@ -117,11 +121,15 @@ AlgorithmConfig
 	delta_0 :: F = T( delta_0(DEFAULT_CONFIG) )
 	delta_max :: F = T( delta_max(DEFAULT_CONFIG) )
 
-	var_scaler :: Union{AbstractAffineScaler,Nothing} = var_scaler( DEFAULT_CONFIG )
+	var_scaler :: Union{VariableTransformation,Nothing} = var_scaler( DEFAULT_CONFIG )
+
+  combine_models_by_type :: Bool = combine_models_by_type(DEFAULT_CONFIG)
 
 	@assert delta_0 > 0 "Initial radius `delta_0` must be positive."
 	@assert delta_max > 0 "Maximum radius `delta_max` must be positive."
 end
+
+config_precision( ac :: AlgorithmConfig{T} ) where T = T
 
 for fn in fieldnames(AlgorithmConfig)
     @eval $fn( ac :: AlgorithmConfig ) = getfield( ac, Symbol($fn) )
